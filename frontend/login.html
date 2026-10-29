@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Login | SolarSense AI</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="auth">
+  <aside class="auth-side">
+    <a href="index.html" class="logo">
+      <span class="logo-mark"><svg width="20" height="20" viewBox="0 0 24 24" fill="#F5A300"><circle cx="12" cy="12" r="5"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" stroke="#F5A300" stroke-width="2" stroke-linecap="round"/></svg></span>
+      SolarSense AI
+    </a>
+    <div>
+      <h2>Your solar plant, clearly in view.</h2>
+      <p>Sign in to monitor generation, track maintenance and read AI insights.</p>
+      <ul>
+        <li>Daily to yearly energy charts</li>
+        <li>AI prediction and fault alerts</li>
+        <li>Maintenance requests with live status</li>
+      </ul>
+    </div>
+    <p style="font-size:14px">Demo build with simulated solar data.</p>
+  </aside>
+
+  <main class="auth-main">
+    <div class="auth-box">
+      <a href="index.html" class="back">Back to home</a>
+      <h1 id="loginTitle">Sign in to your account</h1>
+      <p class="sub">Choose your workspace, then enter your details.</p>
+
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab active" data-role="user" role="tab">User portal</button>
+        <button type="button" class="tab" data-role="admin" role="tab">Admin panel</button>
+      </div>
+
+      <form id="loginForm" novalidate>
+        <div id="loginAlert" class="alert" role="alert"></div>
+        <label>Email
+          <input type="email" id="loginEmail" autocomplete="email" placeholder="you@example.com">
+          <span class="err"></span>
+        </label>
+        <label>Password
+          <div class="pw">
+            <input type="password" id="loginPassword" autocomplete="current-password" placeholder="Enter your password">
+            <button type="button">Show</button>
+          </div>
+          <span class="err"></span>
+        </label>
+        <div class="row"><a id="forgotLink">Forgot password?</a></div>
+        <button class="btn btn-primary" type="submit">Sign in</button>
+      </form>
+
+      <form id="forgotForm" class="hidden" novalidate>
+        <div id="forgotAlert" class="alert" role="status"></div>
+        <label>Registered email
+          <input type="email" id="forgotEmail" placeholder="you@example.com">
+          <span class="err"></span>
+        </label>
+        <button class="btn btn-primary" type="submit">Send reset link</button>
+        <div class="row" style="justify-content:flex-start"><a id="backToLogin">Back to sign in</a></div>
+      </form>
+
+      <p class="auth-foot">New to SolarSense AI? <a href="register.html">Create an account</a></p>
+
+      <div class="demo">
+        <b>Demo accounts</b><br>
+        User: user@solarsense.com / User@123<br>
+        Admin: admin@solarsense.com / Admin@123
+      </div>
+    </div>
+  </main>
+</div>
+<script src="api.js"></script>
+<script src="auth.js"></script>
+</body>
+</html>

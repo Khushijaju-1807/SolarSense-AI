@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin Dashboard | SolarSense AI</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="app.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body class="app" data-role="admin" data-title="Admin Dashboard">
+<div id="page" class="content">
+
+  <div id="aBanner"></div>
+  <div class="stat-grid" id="aStats" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))"></div>
+
+  <div class="cols">
+    <div class="panel">
+      <div class="panel-head"><h3>Total energy generation (all plants, last 30 days)</h3></div>
+      <div class="chart-box"><canvas id="cEnergy"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>System alerts</h3><span class="chip chip-warn" id="aCount"></span></div>
+      <ul class="alert-list" id="aList"></ul>
+    </div>
+  </div>
+
+  <div class="cols even">
+    <div class="panel"><div class="panel-head"><h3>Plant statistics</h3></div><div class="chart-box"><canvas id="cPlants"></canvas></div></div>
+    <div class="panel"><div class="panel-head"><h3>Maintenance statistics</h3></div><div class="chart-box"><canvas id="cMaint"></canvas></div></div>
+  </div>
+  <div class="cols even">
+    <div class="panel"><div class="panel-head"><h3>User statistics</h3></div><div class="chart-box"><canvas id="cUsers"></canvas></div></div>
+    <div class="panel"><div class="panel-head"><h3>Generation by plant (last 30 days)</h3></div><div class="chart-box"><canvas id="cByPlant"></canvas></div></div>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="auth.js"></script>
+<script src="data.js"></script>
+<script src="admin-data.js"></script>
+<script src="app.js"></script>
+<script>
+(async function () {
+  if (!window.ME) return;
+
+  try {
+    const data = await window.api.getAdminOverview();
+    const pending = (data.maintenance && data.maintenance.byStatus && data.maintenance.byStatus['Pending']) || 0;
+    const assigned = (data.maintenance && data.maintenance.byStatus && data.maintenance.byStatus['Assigned']) || 0;
+    const inProg = (data.maintenance && data.maintenance.byStatus && data.maintenance.byStatus['In Progress']) || 0;
+    const resolved = (data.maintenance && data.maintenance.byStatus && data.maintenance.byStatus['Resolved']) || 0;
+    const closed = (data.maintenance && data.maintenance.byStatus && data.maintenance.byStatus['Closed']) || 0;
+    const active = assigned + inProg;
+    const done = resolved + closed;
+
+    const card = (l, v, n, c) => `<div class="stat-card ${c || ''}"><small>${l}</small><b>${v}</b><span>${n}</span></div>`;
+    $('aStats').innerHTML =
+      card('Total users', data.users.total, 'plant owners') +
+      card('Total solar plants', data.plants.total, data.plants.capacity + ' kW installed') +
+      card('Total energy generated', Math.round(data.energy.totalKwh).toLocaleString('en-IN'), 'kWh, all plants', 'green') +
+      card('Pending requests', pending, 'waiting for assignment') +
+      card('Active requests', active, 'assigned or in progress') +
+      card('Resolved requests', done, 'resolved or closed', 'green') +
+      card('System alerts', (data.alerts || []).length, 'in the last 14 days');
+
+    $('aBanner').innerHTML = pending
+      ? `<div class="banner"><div><b>${pending} maintenance request${pending > 1 ? 's' : ''} waiting for a technician</b>Open Maintenance in the sidebar to assign one.</div></div>`
+      : '';
+
+    const alerts = data.alerts || [];
+    $('aCount').textContent = alerts.length + ' alerts';
+    $('aList').innerHTML = alerts.length ? alerts.slice(0, 6).map((a) =>
+      `<li class="${a.level === 'minor' ? 'minor' : ''}"><b>${esc(a.plant)}: ${a.drop}% below expected</b>${esc(a.advice)}<small>${a.date}: ${a.actual} of ${a.expected} kWh</small></li>`).join('')
+      : '<li style="border-left-color:var(--leaf)">No alerts in the last 14 days.</li>';
+
+    /* 30-day totals line chart */
+    const daily = (data.energy && data.energy.daily30) ? data.energy.daily30 : [];
+    new Chart($('cEnergy'), {
+      type: 'line',
+      data: {
+        labels: daily.map((d) => d.date.slice(5)),
+        datasets: [
+          { label: 'Actual (kWh)', data: daily.map((d) => d.actual), borderColor: '#F5A300', backgroundColor: 'rgba(245,163,0,.15)', fill: true, tension: .35, borderWidth: 3, pointRadius: 0 },
+          { label: 'Expected (kWh)', data: daily.map((d) => d.expected), borderColor: '#9FB0CC', borderDash: [6, 5], tension: .35, borderWidth: 2, pointRadius: 0 }
+        ]
+      },
+      options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true } } }
+    });
+
+    const donut = { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } };
+
+    /* Plant status */
+    const plantStatusCounts = (data.plants && data.plants.byStatus) ? data.plants.byStatus : {};
+    new Chart($('cPlants'), {
+      type: 'doughnut',
+      data: {
+        labels: PLANT_STATUSES,
+        datasets: [{ data: PLANT_STATUSES.map((s) => plantStatusCounts[s] || 0), backgroundColor: ['#1E9E6A', '#F5A300', '#9FB0CC'] }]
+      },
+      options: donut
+    });
+
+    /* Maintenance status */
+    const MS = ['Pending', 'Assigned', 'In Progress', 'Resolved', 'Closed'];
+    const maintStatusCounts = (data.maintenance && data.maintenance.byStatus) ? data.maintenance.byStatus : {};
+    new Chart($('cMaint'), {
+      type: 'bar',
+      data: {
+        labels: MS,
+        datasets: [{ label: 'Requests', data: MS.map((s) => maintStatusCounts[s] || 0), backgroundColor: ['#F5A300', '#2B5CB0', '#5B3FB0', '#1E9E6A', '#9FB0CC'], borderRadius: 6 }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+    });
+
+    /* User status */
+    new Chart($('cUsers'), {
+      type: 'doughnut',
+      data: {
+        labels: ['Active', 'Inactive'],
+        datasets: [{ data: [data.users.active, data.users.inactive], backgroundColor: ['#1E9E6A', '#9FB0CC'] }]
+      },
+      options: donut
+    });
+
+    /* Generation by plant */
+    const byPlant = (data.energy && data.energy.byPlant) ? data.energy.byPlant : [];
+    new Chart($('cByPlant'), {
+      type: 'bar',
+      data: {
+        labels: byPlant.map((p) => p.name),
+        datasets: [{ label: 'kWh', data: byPlant.map((p) => Math.round(p.actual30)), backgroundColor: '#0F1F3D', borderRadius: 6 }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+    });
+  } catch (err) {
+    console.error('Error loading admin overview', err);
+  }
+})();
+</script>
+</body>
+</html>

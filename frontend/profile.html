@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Profile | SolarSense AI</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="app" data-role="user" data-title="Profile">
+<div id="page" class="content">
+  <div class="profile-grid">
+
+    <div class="panel">
+      <div class="profile-head">
+        <div class="avatar" id="pAvatar"></div>
+        <div><b id="pName"></b><span id="pEmailTxt"></span></div>
+      </div>
+      <form id="pForm" novalidate>
+        <div id="pAlert" class="alert" role="alert"></div>
+        <label>Full name <input type="text" id="fName"><span class="err"></span></label>
+        <label>Email (cannot be changed) <input type="email" id="fEmail" readonly></label>
+        <label>Phone number <input type="tel" id="fPhone" maxlength="10"><span class="err"></span></label>
+        <div class="detail-grid" style="grid-template-columns:1fr 1fr">
+          <div class="detail"><small>Account type</small><b>Plant owner</b></div>
+          <div class="detail"><small>Member since</small><b id="fSince"></b></div>
+        </div>
+        <button class="btn btn-primary" type="submit">Save changes</button>
+      </form>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h3>Change password</h3></div>
+      <form id="pwForm" novalidate>
+        <div id="pwAlert" class="alert" role="alert"></div>
+        <label>Current password <input type="password" id="curPw" autocomplete="current-password"><span class="err"></span></label>
+        <label>New password <input type="password" id="newPw" autocomplete="new-password" placeholder="8+ characters, letters and numbers"><span class="err"></span></label>
+        <label>Confirm new password <input type="password" id="conPw" autocomplete="new-password"><span class="err"></span></label>
+        <button class="btn btn-primary" type="submit">Update password</button>
+      </form>
+      <p class="note">Demo build: passwords are kept in this browser. The backend will store only a secure hash.</p>
+    </div>
+
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="auth.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+<script>
+(async function () {
+  if (!window.ME) return;
+
+  const initials = (n) => (n || '').split(' ').map((w) => w[0]).join('').slice(0, 2).toUpperCase();
+  const show = (box, type, msg) => { box.className = 'alert show ' + type; box.textContent = msg; };
+
+  let acct = window.ME;
+  try {
+    acct = await window.api.getMe();
+  } catch (err) {
+    console.error('Failed to get current user details', err);
+  }
+
+  function fill() {
+    $('pAvatar').textContent = initials(acct.name);
+    $('pName').textContent = acct.name;
+    $('pEmailTxt').textContent = acct.email;
+    $('fName').value = acct.name || '';
+    $('fEmail').value = acct.email || '';
+    $('fPhone').value = acct.phone || '';
+    $('fSince').textContent = (acct.createdAt || '').slice(0, 10) || '-';
+  }
+  fill();
+
+  $('pForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const n = $('fName'), p = $('fPhone'), box = $('pAlert');
+    box.className = 'alert';
+    const ok = [
+      setErr(n, n.value.trim().length >= 3 ? '' : 'Enter your full name.'),
+      setErr(p, PHONE_RE.test(p.value.trim()) ? '' : 'Enter a valid 10-digit mobile number.')
+    ];
+    if (ok.includes(false)) return;
+
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
+
+    try {
+      const res = await window.api.updateMe({
+        name: n.value.trim(),
+        phone: p.value.trim()
+      });
+      acct = res.user || res;
+      fill();
+      show(box, 'ok', 'Profile updated.');
+    } catch (err) {
+      show(box, 'error', err.message || 'Failed to update profile.');
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  });
+
+  $('pwForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const c = $('curPw'), n = $('newPw'), k = $('conPw'), box = $('pwAlert');
+    box.className = 'alert';
+    const ok = [
+      setErr(c, c.value ? '' : 'Enter your current password.'),
+      setErr(n, n.value.length >= 8 && /[A-Za-z]/.test(n.value) && /\d/.test(n.value) ? '' : 'Use 8+ characters with letters and numbers.'),
+      setErr(k, k.value && k.value === n.value ? '' : 'Passwords do not match.')
+    ];
+    if (ok.includes(false)) return;
+    if (c.value === n.value) return show(box, 'error', 'New password must be different from current password.');
+
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
+
+    try {
+      await window.api.changePassword(c.value, n.value);
+      e.target.reset();
+      show(box, 'ok', 'Password updated.');
+    } catch (err) {
+      show(box, 'error', err.message || 'Failed to update password.');
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  });
+})();
+</script>
+</body>
+</html>

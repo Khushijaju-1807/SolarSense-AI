@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Energy Analytics | SolarSense AI</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="app.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body class="app" data-role="user" data-title="Energy Analytics">
+<div id="page" class="content">
+
+  <div class="panel">
+    <div class="filters">
+      <label>View
+        <select id="mode">
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="monthly" selected>Monthly</option>
+          <option value="yearly">Yearly</option>
+        </select>
+      </label>
+      <label>From <input type="date" id="from"></label>
+      <label>To <input type="date" id="to"></label>
+      <button type="button" class="btn btn-outline btn-sm" id="reset">Reset dates</button>
+    </div>
+  </div>
+
+  <div class="stat-grid">
+    <div class="stat-card"><small>Total in range</small><b id="sTotal">-</b><span>kWh</span></div>
+    <div class="stat-card"><small>Average daily generation</small><b id="sAvg">-</b><span>kWh per day</span></div>
+    <div class="stat-card green"><small>Highest generation day</small><b id="sHigh">-</b><span id="sHighD"></span></div>
+    <div class="stat-card"><small>Lowest generation day</small><b id="sLow">-</b><span id="sLowD"></span></div>
+    <div class="stat-card"><small>Production trend</small><b id="sTrend" style="font-size:20px">-</b><span id="sTrendN"></span></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h3>Expected vs actual generation</h3></div>
+    <div class="chart-box" style="height:320px"><canvas id="chart"></canvas></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h3>Compare two months</h3></div>
+    <div class="filters">
+      <label>Month A <select id="mA"></select></label>
+      <label>Month B <select id="mB"></select></label>
+    </div>
+    <div class="calc-out" style="margin-top:16px">
+      <div class="stat-card"><small id="cAl">Month A</small><b id="cA" style="color:var(--navy)">-</b><span>kWh</span></div>
+      <div class="stat-card"><small id="cBl">Month B</small><b id="cB" style="color:var(--navy)">-</b><span>kWh</span></div>
+      <div class="stat-card"><small>Change from A to B</small><b id="cD">-</b><span id="cDn"></span></div>
+    </div>
+    <p class="note">The current month is partial, so compare it with care.</p>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="auth.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+<script>
+(async function () {
+  if (!window.ME) return;
+
+  try {
+    const plants = await window.api.getPlants();
+    if (!plants || !plants.length) {
+      ['sTotal', 'sAvg', 'sHigh', 'sLow', 'sTrend'].forEach((id) => ($(id).textContent = '-'));
+      return;
+    }
+
+    const raw = await window.api.getEnergy({ plantId: plants[0].plantId });
+    const data = (raw || []).map((r) => ({
+      date: r.date,
+      energy: r.energyGenerated,
+      expected: r.expectedEnergy
+    }));
+
+    if (!data.length) {
+      ['sTotal', 'sAvg', 'sHigh', 'sLow', 'sTrend'].forEach((id) => ($(id).textContent = '-'));
+      return;
+    }
+
+    const first = data[0].date, last = data[data.length - 1].date;
+    const from = $('from'), to = $('to');
+    from.min = to.min = first; from.max = to.max = last;
+    const setFull = () => { from.value = first; to.value = last; };
+    setFull();
+    let chart;
+
+    const filtered = () => data.filter((r) => (!from.value || r.date >= from.value) && (!to.value || r.date <= to.value));
+
+    function group(rows, mode) {
+      if (mode === 'daily') return rows.map((r) => ({ l: r.date.slice(5), a: r.energy, e: r.expected }));
+      const g = new Map();
+      rows.forEach((r, i) => {
+        const k = mode === 'weekly' ? Math.floor(i / 7) : mode === 'monthly' ? r.date.slice(0, 7) : r.date.slice(0, 4);
+        if (!g.has(k)) g.set(k, { l: mode === 'weekly' ? r.date.slice(5) : String(k), a: 0, e: 0 });
+        const o = g.get(k); o.a += r.energy; o.e += r.expected;
+      });
+      return [...g.values()].map((o) => ({ l: o.l, a: +o.a.toFixed(1), e: +o.e.toFixed(1) }));
+    }
+
+    function render() {
+      const rows = filtered(), mode = $('mode').value;
+      if (!rows.length) {
+        ['sTotal', 'sAvg', 'sHigh', 'sLow', 'sTrend'].forEach((id) => ($(id).textContent = '-'));
+        if (chart) chart.destroy();
+        return;
+      }
+      const total = sumKwh(rows);
+      const hi = rows.reduce((a, r) => (r.energy > a.energy ? r : a));
+      const lo = rows.reduce((a, r) => (r.energy < a.energy ? r : a));
+      $('sTotal').textContent = Math.round(total).toLocaleString('en-IN');
+      $('sAvg').textContent = (total / rows.length).toFixed(1);
+      $('sHigh').textContent = hi.energy.toFixed(1) + ' kWh'; $('sHighD').textContent = hi.date;
+      $('sLow').textContent = lo.energy.toFixed(1) + ' kWh'; $('sLowD').textContent = lo.date;
+
+      if (rows.length >= 4) {
+        const h = Math.floor(rows.length / 2);
+        const a1 = sumKwh(rows.slice(0, h)) / h, a2 = sumKwh(rows.slice(h)) / (rows.length - h);
+        const pct = ((a2 - a1) / a1) * 100;
+        $('sTrend').textContent = (pct >= 0 ? 'Rising ' : 'Falling ') + Math.abs(pct).toFixed(1) + '%';
+        $('sTrend').style.color = pct >= 0 ? 'var(--leaf)' : 'var(--warn)';
+        $('sTrendN').textContent = 'later half vs earlier half';
+      } else { $('sTrend').textContent = 'Not enough data'; $('sTrendN').textContent = ''; }
+
+      const g = group(rows, mode);
+      const line = mode === 'daily' || mode === 'weekly';
+      if (chart) chart.destroy();
+      chart = new Chart($('chart'), {
+        type: line ? 'line' : 'bar',
+        data: {
+          labels: g.map((x) => x.l),
+          datasets: [
+            { label: 'Actual (kWh)', data: g.map((x) => x.a), borderColor: '#F5A300', backgroundColor: line ? 'rgba(245,163,0,.15)' : '#F5A300', fill: line, tension: .3, borderWidth: line ? 3 : 0, pointRadius: line ? 2 : 0, borderRadius: 5 },
+            { label: 'Expected (kWh)', data: g.map((x) => x.e), borderColor: '#9FB0CC', backgroundColor: '#0F1F3D', borderDash: line ? [6, 5] : [], tension: .3, borderWidth: line ? 2 : 0, pointRadius: 0, borderRadius: 5 }
+          ]
+        },
+        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true, title: { display: true, text: 'kWh' } } } }
+      });
+    }
+
+    ['mode', 'from', 'to'].forEach((id) => $(id).addEventListener('change', render));
+    $('reset').onclick = () => { setFull(); render(); };
+
+    /* Compare two months */
+    const months = monthlyTotals(data);
+    if (months.length) {
+      const opts = months.map((m) => `<option value="${m.key}">${new Date(m.key + '-01').toLocaleString('en-US', { month: 'long', year: 'numeric' })}</option>`).join('');
+      $('mA').innerHTML = opts; $('mB').innerHTML = opts;
+      $('mA').value = months[Math.max(0, months.length - 2)].key; $('mB').value = months[months.length - 1].key;
+      function compare() {
+        const a = months.find((m) => m.key === $('mA').value), b = months.find((m) => m.key === $('mB').value);
+        if (!a || !b) return;
+        $('cAl').textContent = $('mA').selectedOptions[0].text; $('cBl').textContent = $('mB').selectedOptions[0].text;
+        $('cA').textContent = a.kwh.toLocaleString('en-IN'); $('cB').textContent = b.kwh.toLocaleString('en-IN');
+        const d = b.kwh - a.kwh, pct = a.kwh ? (d / a.kwh) * 100 : 0;
+        $('cD').textContent = (d >= 0 ? '+' : '') + d.toFixed(0) + ' kWh';
+        $('cD').style.color = d >= 0 ? 'var(--leaf)' : 'var(--warn)';
+        $('cDn').textContent = (pct >= 0 ? '+' : '') + pct.toFixed(1) + '%';
+      }
+      $('mA').addEventListener('change', compare); $('mB').addEventListener('change', compare);
+      compare();
+    }
+    render();
+  } catch (err) {
+    console.error('Error loading analytics', err);
+  }
+})();
+</script>
+</body>
+</html>

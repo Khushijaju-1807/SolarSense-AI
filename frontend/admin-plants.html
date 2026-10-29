@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solar Plant Management | SolarSense AI</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="app" data-role="admin" data-title="Solar Plant Management">
+<div id="page" class="content">
+  <div class="panel">
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Search by plant, ID, owner or location" aria-label="Search plants">
+      <span style="color:var(--muted);font-size:14px" id="pCount"></span>
+      <button class="btn btn-primary btn-sm" type="button" id="addBtn">Add solar plant</button>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Plant ID</th><th>Plant name</th><th>Owner</th><th>Location</th><th>Capacity</th><th>Panels</th><th>Installed</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="pBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="auth.js"></script>
+<script src="data.js"></script>
+<script src="admin-data.js"></script>
+<script src="app.js"></script>
+<script>
+(async function () {
+  if (!window.ME) return;
+
+  let q = '';
+  const today = iso(new Date());
+  let plantsList = [];
+
+  async function loadPlants() {
+    try {
+      plantsList = await window.api.getPlants();
+      render();
+    } catch (err) {
+      console.error('Failed to load plants', err);
+    }
+  }
+
+  function ownerName(u) {
+    if (!u) return 'Unassigned';
+    if (typeof u === 'object') return u.name || 'Unassigned';
+    return u;
+  }
+
+  function render() {
+    const list = (plantsList || []).filter((p) => {
+      const owner = p.userId ? (p.userId.name || '') : '';
+      return (p.plantId + ' ' + p.plantName + ' ' + p.location + ' ' + owner).toLowerCase().includes(q);
+    });
+
+    $('pCount').textContent = list.length + ' plant' + (list.length === 1 ? '' : 's');
+    $('pBody').innerHTML = list.length ? list.map((p) => `<tr>
+      <td><b>${p.plantId}</b></td>
+      <td>${esc(p.plantName)}</td>
+      <td>${p.userId ? esc(ownerName(p.userId)) : '<span style="color:var(--muted)">Unassigned</span>'}</td>
+      <td>${esc(p.location)}</td>
+      <td>${p.capacity} kW</td>
+      <td>${p.numberOfPanels}</td>
+      <td>${p.installationDate}</td>
+      <td><select class="row-select" data-act="status" data-id="${p.plantId}" aria-label="Plant status">
+        ${PLANT_STATUSES.map((s) => `<option ${s === p.status ? 'selected' : ''}>${s}</option>`).join('')}</select></td>
+      <td><div class="acts">
+        <button class="link-btn" type="button" data-act="view" data-id="${p.plantId}">View</button>
+        <button class="link-btn" type="button" data-act="edit" data-id="${p.plantId}">Edit</button>
+        <button class="link-btn danger" type="button" data-act="del" data-id="${p.plantId}">Delete</button>
+      </div></td></tr>`).join('') : '<tr><td colspan="9" style="color:var(--muted)">No plants found.</td></tr>';
+  }
+
+  async function view(plantId) {
+    try {
+      const [p, energyRecords, insights] = await Promise.all([
+        window.api.getPlant(plantId),
+        window.api.getEnergy({ plantId }).catch(() => []),
+        window.api.getInsights(plantId).catch(() => null)
+      ]);
+
+      const rows = energyRecords || [];
+      const totalGen = sumKwh(rows);
+      const last30 = rows.slice(-30);
+      const last30Gen = sumKwh(last30);
+      const alertsCount = (insights && insights.alerts) ? insights.alerts.length : 0;
+
+      const row = (k, v) => `<div class="detail"><small>${k}</small><b style="font-size:15px">${v}</b></div>`;
+      openModal(esc(p.plantName),
+        '<div class="detail-grid" style="grid-template-columns:1fr 1fr">' +
+        row('Plant ID', p.plantId) +
+        row('Status', p.status) +
+        row('Owner', esc(ownerName(p.userId))) +
+        row('Location', esc(p.location)) +
+        row('Capacity', p.capacity + ' kW') +
+        row('Panels', p.numberOfPanels) +
+        row('Installed', p.installationDate) +
+        row('Total generated', Math.round(totalGen).toLocaleString('en-IN') + ' kWh') +
+        row('Last 30 days', Math.round(last30Gen).toLocaleString('en-IN') + ' kWh') +
+        row('Alerts (14 days)', alertsCount) + '</div>');
+    } catch (err) {
+      alert(err.message || 'Failed to load plant details.');
+    }
+  }
+
+  async function form(p) {
+    const edit = !!p;
+    let users = [];
+    try {
+      users = await window.api.getUsers();
+    } catch (err) {
+      console.error('Failed to load users for owner select', err);
+    }
+
+    const currentOwnerId = p && p.userId ? (p.userId._id || p.userId) : '';
+
+    openModal(edit ? 'Edit solar plant (' + p.plantId + ')' : 'Add solar plant', `
+      <form id="pForm" novalidate>
+        <div id="pAlert" class="alert" role="alert"></div>
+        <label>Plant name <input type="text" id="fName"><span class="err"></span></label>
+        <label>Location <input type="text" id="fLoc" placeholder="City, State"><span class="err"></span></label>
+        <div class="two">
+          <label>Capacity (kW) <input type="number" id="fCap" min="1" step="0.5"><span class="err"></span></label>
+          <label>Number of panels <input type="number" id="fPan" min="1" step="1"><span class="err"></span></label>
+        </div>
+        <label>Installation date <input type="date" id="fDate" max="${today}"><span class="err"></span></label>
+        <label>Owner
+          <select id="fOwner"><option value="">Unassigned</option>${users.map((u) => `<option value="${u._id}">${esc(u.name)} (${esc(u.email)})</option>`).join('')}</select>
+        </label>
+        <label>Status <select id="fStatus">${PLANT_STATUSES.map((s) => `<option>${s}</option>`).join('')}</select></label>
+        <button class="btn btn-primary" type="submit">${edit ? 'Save changes' : 'Add plant'}</button>
+      </form>`);
+
+    if (edit) {
+      $('fName').value = p.plantName;
+      $('fLoc').value = p.location;
+      $('fCap').value = p.capacity;
+      $('fPan').value = p.numberOfPanels;
+      $('fDate').value = p.installationDate;
+      $('fOwner').value = currentOwnerId || '';
+      $('fStatus').value = p.status;
+    } else {
+      $('fDate').value = today;
+    }
+
+    $('pForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const n = $('fName'), l = $('fLoc'), c = $('fCap'), pn = $('fPan'), d = $('fDate');
+      const box = $('pAlert');
+      box.className = 'alert';
+
+      const ok = [
+        setErr(n, n.value.trim().length >= 3 ? '' : 'Enter the plant name (3+ characters).'),
+        setErr(l, l.value.trim().length >= 3 ? '' : 'Enter the location (3+ characters).'),
+        setErr(c, +c.value > 0 && +c.value <= 1000 ? '' : 'Enter a capacity from 1 to 1000 kW.'),
+        setErr(pn, Number.isInteger(+pn.value) && +pn.value >= 1 ? '' : 'Enter a whole number of panels.'),
+        setErr(d, d.value && d.value <= today ? '' : 'Choose a date that is not in the future.')
+      ];
+      if (ok.includes(false)) return;
+
+      const submitBtn = e.target.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
+
+      try {
+        const payload = {
+          plantName: n.value.trim(),
+          location: l.value.trim(),
+          capacity: +c.value,
+          numberOfPanels: +pn.value,
+          installationDate: d.value,
+          userId: $('fOwner').value || null,
+          status: $('fStatus').value
+        };
+
+        if (edit) {
+          await window.api.updatePlant(p.plantId, payload);
+        } else {
+          await window.api.createPlant(payload);
+        }
+
+        closeModal();
+        await loadPlants();
+      } catch (err) {
+        box.className = 'alert show error';
+        box.textContent = err.message || 'Failed to save plant.';
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+
+  $('pBody').addEventListener('click', async (e) => {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    const p = plantsList.find((x) => x.plantId === b.dataset.id);
+    if (!p) return;
+
+    if (b.dataset.act === 'view') view(p.plantId);
+    if (b.dataset.act === 'edit') form(p);
+    if (b.dataset.act === 'del') {
+      if (!confirm('Delete plant ' + p.plantName + ' (' + p.plantId + ')?')) return;
+      try {
+        await window.api.deletePlant(p.plantId);
+        await loadPlants();
+      } catch (err) {
+        alert(err.message || 'Failed to delete plant.');
+      }
+    }
+  });
+
+  $('pBody').addEventListener('change', async (e) => {
+    const s = e.target.closest('select[data-act="status"]');
+    if (!s) return;
+    try {
+      await window.api.updatePlant(s.dataset.id, { status: s.value });
+      await loadPlants();
+    } catch (err) {
+      alert(err.message || 'Failed to update status.');
+      await loadPlants();
+    }
+  });
+
+  $('q').addEventListener('input', (e) => {
+    q = e.target.value.trim().toLowerCase();
+    render();
+  });
+
+  $('addBtn').onclick = () => form(null);
+
+  await loadPlants();
+})();
+</script>
+</body>
+</html>

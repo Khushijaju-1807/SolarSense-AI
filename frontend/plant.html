@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Solar Plant | SolarSense AI</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="app" data-role="user" data-title="Solar Plant Details">
+<div id="page" class="content">
+  <div class="panel">
+    <div class="panel-head"><h3 id="pName">-</h3><span id="pStatus"></span></div>
+    <div class="detail-grid" id="pGrid"></div>
+    <p class="note">Plant details and generation figures are simulated for this demo.</p>
+  </div>
+</div>
+<script src="api.js"></script>
+<script src="auth.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+<script>
+(async function () {
+  if (!window.ME) return;
+  try {
+    const plants = await window.api.getPlants();
+    if (!plants || !plants.length) {
+      $('pName').textContent = 'No Solar Plant Assigned';
+      $('pGrid').innerHTML = '<p class="empty" style="grid-column:1/-1">No plant has been linked to your account yet. Contact an administrator.</p>';
+      return;
+    }
+
+    const plant = plants[0];
+    $('pName').textContent = plant.plantName;
+    $('pStatus').innerHTML = '<span class="st st-Resolved">' + plant.status + '</span>';
+
+    const energyRecords = await window.api.getEnergy({ plantId: plant.plantId }).catch(() => []);
+    const totalKwh = sumKwh(energyRecords);
+
+    const rows = [
+      ['Plant name', plant.plantName],
+      ['Plant ID', plant.plantId],
+      ['Installed capacity', plant.capacity + ' kW'],
+      ['Location', plant.location],
+      ['Installation date', plant.installationDate],
+      ['Number of panels', plant.numberOfPanels],
+      ['Current status', plant.status],
+      ['Total energy generated', Math.round(totalKwh).toLocaleString('en-IN') + ' kWh']
+    ];
+    $('pGrid').innerHTML = rows.map(([k, v]) => `<div class="detail"><small>${k}</small><b>${v}</b></div>`).join('');
+  } catch (err) {
+    console.error('Failed to load plant details', err);
+  }
+})();
+</script>
+</body>
+</html>

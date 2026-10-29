@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maintenance Management | SolarSense AI</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="app" data-role="admin" data-title="Maintenance Management">
+<div id="page" class="content">
+  <div class="stat-grid" id="mStats" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))"></div>
+  <div class="panel">
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Search by ID, issue, plant, owner or technician" aria-label="Search requests">
+      <select id="fSt" aria-label="Filter by status">
+        <option value="">All statuses</option><option>Pending</option><option>Assigned</option><option>In Progress</option><option>Resolved</option><option>Closed</option>
+      </select>
+      <select id="fPr" aria-label="Filter by priority">
+        <option value="">All priorities</option><option>Low</option><option>Medium</option><option>High</option><option>Critical</option>
+      </select>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Request ID</th><th>Issue</th><th>Plant</th><th>Owner</th><th>Date</th><th>Priority</th><th>Status</th><th>Technician</th><th></th></tr></thead>
+        <tbody id="mBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="auth.js"></script>
+<script src="data.js"></script>
+<script src="admin-data.js"></script>
+<script src="app.js"></script>
+<script>
+(async function () {
+  if (!window.ME) return;
+
+  const STEPS = ['Pending', 'Assigned', 'In Progress', 'Resolved', 'Closed'];
+  let q = '', fs = '', fp = '';
+  let requestsList = [];
+  let plantsMap = {};
+  let techList = [];
+
+  async function loadData() {
+    try {
+      const [maint, plants, techs] = await Promise.all([
+        window.api.getMaintenance(fs || fp ? { status: fs || undefined, priority: fp || undefined } : {}),
+        window.api.getPlants().catch(() => []),
+        window.api.get('/technicians').catch(() => [])
+      ]);
+      techList = techs || [];
+      requestsList = maint || [];
+      plantsMap = {};
+      (plants || []).forEach((p) => { plantsMap[p.plantId] = p.plantName; });
+      render();
+    } catch (err) {
+      console.error('Failed to load maintenance data', err);
+    }
+  }
+
+  function ownerName(u) {
+    if (!u) return 'Unassigned';
+    if (typeof u === 'object') return u.name || 'Unassigned';
+    return u;
+  }
+
+  function render() {
+    const all = requestsList;
+    const n = (f) => all.filter(f).length;
+    const open = (m) => m.status !== 'Resolved' && m.status !== 'Closed';
+
+    $('mStats').innerHTML = [
+      ['Total requests', all.length, ''],
+      ['Pending', n((m) => m.status === 'Pending'), ''],
+      ['Active', n((m) => m.status === 'Assigned' || m.status === 'In Progress'), ''],
+      ['Resolved or closed', n((m) => !open(m)), 'green'],
+      ['Critical and still open', n((m) => m.priority === 'Critical' && open(m)), '']
+    ].map(([l, v, c]) => `<div class="stat-card ${c}"><small>${l}</small><b>${v}</b></div>`).join('');
+
+    const list = all.filter((m) => {
+      const oName = ownerName(m.userId);
+      const pName = plantsMap[m.plantId] || m.plantId;
+      const haystack = (m.requestId + ' ' + m.title + ' ' + m.plantId + ' ' + pName + ' ' + oName + ' ' + (m.assignedTechnician || '')).toLowerCase();
+      return haystack.includes(q);
+    });
+
+    $('mBody').innerHTML = list.length ? list.map((m) => `<tr>
+      <td><b>${m.requestId}</b></td>
+      <td style="white-space:normal;min-width:180px">${esc(m.title)}</td>
+      <td>${esc(plantsMap[m.plantId] || m.plantId)}</td>
+      <td>${esc(ownerName(m.userId))}</td>
+      <td>${(m.createdAt || '').slice(0, 10)}</td>
+      <td class="pr-${m.priority}">${m.priority}</td>
+      <td><span class="st st-${m.status.replace(' ', '')}">${m.status}</span></td>
+      <td>${m.assignedTechnician ? esc(m.assignedTechnician) + (m.technicianPhone ? '<br><small style="color:var(--muted)">' + esc(m.technicianPhone) + '</small>' : '') : '<span style="color:var(--muted)">Not assigned</span>'}</td>
+      <td><button class="btn btn-outline btn-sm" type="button" data-id="${m.requestId}">Manage</button></td></tr>`).join('')
+      : '<tr><td colspan="9" style="color:var(--muted)">No requests match your filters.</td></tr>';
+  }
+
+  function manage(id) {
+    const m = requestsList.find((x) => x.requestId === id);
+    if (!m) return;
+    const row = (k, v) => `<div class="detail"><small>${k}</small><b style="font-size:15px">${v}</b></div>`;
+    const notes = (m.serviceNotes || []).map((x) => `<li><small>${(x.createdAt || '').slice(0, 10)}</small><br>${esc(x.text)}</li>`).join('');
+
+    openModal('Manage ' + m.requestId, `
+      <div class="detail-grid" style="grid-template-columns:1fr 1fr">
+        ${row('Issue', esc(m.title))}${row('Priority', m.priority)}${row('Plant', esc(plantsMap[m.plantId] || m.plantId))}
+        ${row('Owner', esc(ownerName(m.userId)))}${row('Raised on', (m.createdAt || '').slice(0, 10))}${row('Resolved on', (m.resolvedAt || '').slice(0, 10) || '-')}
+      </div>
+      <p style="margin:14px 0;font-size:14.5px"><b>Description:</b> ${esc(m.description || '-')}</p>
+      <form id="mForm" novalidate>
+        <div id="fAlert" class="alert" role="alert"></div>
+        <label>Assigned technician
+          <select id="mTech"><option value="">Not assigned</option>${techList.filter((t) => t.status === 'active' || t.technicianId === m.technicianId).map((t) => `<option value="${t.technicianId}">${esc(t.name)} - ${esc(t.phone)}</option>`).join('')}</select>
+          <span class="err"></span>
+        </label>
+        <label>Status <select id="mSt">${STEPS.map((s) => `<option>${s}</option>`).join('')}</select><span class="err"></span></label>
+        <label>Add a service note <textarea id="mNote" style="min-height:70px" placeholder="Work done, parts replaced, advice for the owner..."></textarea></label>
+        ${notes ? `<ul class="alert-list" style="margin-top:-4px">${notes}</ul>` : ''}
+        <div style="display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn btn-primary" type="submit">Save changes</button>
+          <button class="btn btn-outline" type="button" id="mResolve">Mark as resolved</button>
+        </div>
+      </form>`);
+
+    const origTech = m.technicianId || '';
+    // technician saved before the technicians list existed (name only)
+    if (m.assignedTechnician && !origTech) {
+      $('mTech').insertAdjacentHTML('beforeend', `<option value="__legacy">${esc(m.assignedTechnician)} (not in list)</option>`);
+      $('mTech').value = '__legacy';
+    } else {
+      $('mTech').value = origTech;
+    }
+    $('mSt').value = m.status;
+    if (!techList.length) {
+      $('fAlert').className = 'alert show error';
+      $('fAlert').textContent = 'No technicians yet. Add them from the Technicians page first.';
+    }
+
+    $('mResolve').onclick = () => {
+      $('mSt').value = 'Resolved';
+      $('mForm').requestSubmit();
+    };
+
+    $('mForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const tech = $('mTech').value, note = $('mNote').value.trim();   // technician ID, '__legacy' or ''
+      let status = $('mSt').value;
+      if (status === 'Pending' && tech) status = 'Assigned';
+      const ok = setErr($('mTech'), status !== 'Pending' && !tech ? 'Assign a technician before moving past Pending.' : '');
+      if (!ok) return;
+
+      const submitBtn = e.target.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
+
+      try {
+        const payload = { status: status };
+        if (tech !== '__legacy' && tech !== origTech) payload.technicianId = tech;   // '' removes the technician
+        if (note) payload.note = note;
+
+        await window.api.updateMaintenance(m.requestId, payload);
+        closeModal();
+        await loadData();
+      } catch (err) {
+        const box = $('fAlert');
+        box.className = 'alert show error';
+        box.textContent = err.message || 'Failed to update request.';
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+
+  $('mBody').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-id]');
+    if (b) manage(b.dataset.id);
+  });
+
+  $('q').addEventListener('input', (e) => {
+    q = e.target.value.trim().toLowerCase();
+    render();
+  });
+
+  $('fSt').addEventListener('change', (e) => {
+    fs = e.target.value;
+    loadData();
+  });
+
+  $('fPr').addEventListener('change', (e) => {
+    fp = e.target.value;
+    loadData();
+  });
+
+  await loadData();
+})();
+</script>
+</body>
+</html>

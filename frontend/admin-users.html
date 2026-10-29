@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>User Management | SolarSense AI</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="app" data-role="admin" data-title="User Management">
+<div id="page" class="content">
+  <div class="panel">
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Search by name, email, phone or ID" aria-label="Search users">
+      <span style="color:var(--muted);font-size:14px" id="uCount"></span>
+      <button class="btn btn-primary btn-sm" type="button" id="addBtn">Add user</button>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>User ID</th><th>Name</th><th>Email</th><th>Phone</th><th>Plant</th><th>Status</th><th>Registered</th><th>Actions</th></tr></thead>
+        <tbody id="uBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="auth.js"></script>
+<script src="data.js"></script>
+<script src="admin-data.js"></script>
+<script src="app.js"></script>
+<script>
+(async function () {
+  if (!window.ME) return;
+
+  let q = '';
+  let usersList = [];
+
+  async function loadUsers() {
+    try {
+      usersList = await window.api.getUsers(q);
+      render();
+    } catch (err) {
+      console.error('Failed to load users', err);
+    }
+  }
+
+  function render() {
+    const list = usersList;
+    $('uCount').textContent = list.length + ' user' + (list.length === 1 ? '' : 's');
+    $('uBody').innerHTML = list.length ? list.map((u) => {
+      const pl = (u.plants && u.plants.length)
+        ? u.plants.map((p) => esc(p.plantName)).join(', ')
+        : '<span style="color:var(--muted)">None</span>';
+      const on = u.status === 'active';
+      const shortId = u._id ? u._id.slice(-6).toUpperCase() : '-';
+
+      return `<tr>
+        <td><b title="${u._id}">#${shortId}</b></td>
+        <td>${esc(u.name)}</td>
+        <td>${esc(u.email)}</td>
+        <td>${esc(u.phone || '')}</td>
+        <td style="white-space:normal;min-width:150px">${pl}</td>
+        <td><span class="st ${on ? 'st-Resolved' : 'st-Closed'}">${on ? 'Active' : 'Inactive'}</span></td>
+        <td>${(u.createdAt || '').slice(0, 10)}</td>
+        <td><div class="acts">
+          <button class="link-btn" type="button" data-act="view" data-id="${u._id}">View</button>
+          <button class="link-btn" type="button" data-act="edit" data-id="${u._id}">Edit</button>
+          <button class="link-btn" type="button" data-act="toggle" data-id="${u._id}">${on ? 'Deactivate' : 'Activate'}</button>
+          <button class="link-btn danger" type="button" data-act="del" data-id="${u._id}">Delete</button>
+        </div></td></tr>`;
+    }).join('') : '<tr><td colspan="8" style="color:var(--muted)">No users found.</td></tr>';
+  }
+
+  async function view(uId) {
+    try {
+      const u = await window.api.getUserDetails(uId);
+      const pl = u.plants || [];
+      const row = (k, v) => `<div class="detail"><small>${k}</small><b style="font-size:15px;word-break:break-word">${v}</b></div>`;
+      openModal('User details',
+        '<div class="detail-grid" style="grid-template-columns:1fr 1fr">' +
+        row('User ID', u._id) +
+        row('Status', u.status === 'active' ? 'Active' : 'Inactive') +
+        row('Name', esc(u.name)) +
+        row('Phone', esc(u.phone || '-')) +
+        row('Email', esc(u.email)) +
+        row('Registered', (u.createdAt || '').slice(0, 10) || '-') +
+        row('Solar plants', pl.length ? pl.map((p) => esc(p.plantName + ' (' + p.plantId + ')')).join(', ') : 'None assigned') +
+        '</div>');
+    } catch (err) {
+      alert(err.message || 'Failed to load user details.');
+    }
+  }
+
+  function form(u) {
+    const edit = !!u;
+    openModal(edit ? 'Edit user' : 'Add user', `
+      <form id="uForm" novalidate>
+        <div id="fAlert" class="alert" role="alert"></div>
+        <label>Full name <input type="text" id="fName"><span class="err"></span></label>
+        <label>Email <input type="email" id="fEmail"><span class="err"></span></label>
+        <label>Phone number <input type="tel" id="fPhone" maxlength="10"><span class="err"></span></label>
+        <label>${edit ? 'New password (leave blank to keep current)' : 'Password'} <input type="password" id="fPass" autocomplete="new-password" placeholder="8+ characters, letters and numbers"><span class="err"></span></label>
+        <label>Status <select id="fStatus"><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
+        <button class="btn btn-primary" type="submit">${edit ? 'Save changes' : 'Add user'}</button>
+      </form>`);
+
+    if (edit) {
+      $('fName').value = u.name;
+      $('fEmail').value = u.email;
+      $('fPhone').value = u.phone || '';
+      $('fStatus').value = u.status || 'active';
+    }
+
+    $('uForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const n = $('fName'), em = $('fEmail'), ph = $('fPhone'), pw = $('fPass');
+      const box = $('fAlert');
+      box.className = 'alert';
+
+      const pwOk = edit && !pw.value ? '' : (pw.value.length >= 8 && /[A-Za-z]/.test(pw.value) && /\d/.test(pw.value) ? '' : 'Use 8+ characters with letters and numbers.');
+      const ok = [
+        setErr(n, n.value.trim().length >= 3 ? '' : 'Enter the full name.'),
+        setErr(em, EMAIL_RE.test(em.value.trim()) ? '' : 'Enter a valid email address.'),
+        setErr(ph, PHONE_RE.test(ph.value.trim()) ? '' : 'Enter a valid 10-digit mobile number.'),
+        setErr(pw, pwOk)
+      ];
+      if (ok.includes(false)) return;
+
+      const submitBtn = e.target.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
+
+      try {
+        const payload = {
+          name: n.value.trim(),
+          email: em.value.trim().toLowerCase(),
+          phone: ph.value.trim(),
+          status: $('fStatus').value
+        };
+        if (pw.value) payload.password = pw.value;
+
+        if (edit) {
+          await window.api.updateUser(u._id, payload);
+        } else {
+          await window.api.createUser(payload);
+        }
+
+        closeModal();
+        await loadUsers();
+      } catch (err) {
+        box.className = 'alert show error';
+        box.textContent = err.message || 'Failed to save user.';
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+  }
+
+  $('uBody').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    const u = usersList.find((x) => x._id === b.dataset.id);
+    if (!u) return;
+
+    if (b.dataset.act === 'view') view(u._id);
+    if (b.dataset.act === 'edit') form(u);
+    if (b.dataset.act === 'toggle') {
+      try {
+        await window.api.updateUser(u._id, { status: u.status === 'active' ? 'inactive' : 'active' });
+        await loadUsers();
+      } catch (err) {
+        alert(err.message || 'Failed to update user status.');
+      }
+    }
+    if (b.dataset.act === 'del') {
+      if (!confirm('Delete user ' + u.name + '? Their plants will become unassigned.')) return;
+      try {
+        await window.api.deleteUser(u._id);
+        await loadUsers();
+      } catch (err) {
+        alert(err.message || 'Failed to delete user.');
+      }
+    }
+  });
+
+  let searchTimeout;
+  $('q').addEventListener('input', (e) => {
+    clearTimeout(searchTimeout);
+    q = e.target.value.trim();
+    searchTimeout = setTimeout(loadUsers, 250);
+  });
+
+  $('addBtn').onclick = () => form(null);
+
+  await loadUsers();
+})();
+</script>
+</body>
+</html>

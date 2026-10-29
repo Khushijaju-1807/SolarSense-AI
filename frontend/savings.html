@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Savings Calculator | SolarSense AI</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="app" data-role="user" data-title="Savings Calculator">
+<div id="page" class="content">
+  <div class="panel" style="max-width:760px">
+    <div class="panel-head"><h3>Calculate your electricity savings</h3></div>
+    <form id="calc" class="form-grid" novalidate>
+      <label>Electricity tariff (&#8377; per kWh)
+        <input type="number" id="tariff" min="0" step="0.1" value="8">
+        <span class="err"></span>
+      </label>
+      <label>Energy generated per day (kWh)
+        <input type="number" id="energy" min="0" step="0.1" value="20">
+        <span class="err"></span>
+      </label>
+      <div class="full"><button type="button" class="btn btn-outline btn-sm" id="useToday">Use today's generation</button></div>
+    </form>
+    <div class="calc-out">
+      <div class="stat-card"><small>Daily savings</small><b id="rDay">-</b></div>
+      <div class="stat-card"><small>Monthly savings (30 days)</small><b id="rMonth">-</b></div>
+      <div class="stat-card"><small>Yearly estimated savings</small><b id="rYear">-</b></div>
+    </div>
+    <p class="note">Example: 20 kWh at &#8377;8/kWh = &#8377;160 per day. Savings = energy generated x tariff. Yearly uses 365 days; actual output varies by season.</p>
+  </div>
+</div>
+<script src="api.js"></script>
+<script src="auth.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+<script>
+(async function () {
+  if (!window.ME) return;
+
+  const t = $('tariff'), e = $('energy');
+  function calc() {
+    const okT = setErr(t, t.value !== '' && +t.value >= 0 ? '' : 'Enter a tariff of 0 or more.');
+    const okE = setErr(e, e.value !== '' && +e.value >= 0 ? '' : 'Enter energy of 0 or more.');
+    if (!okT || !okE) { $('rDay').textContent = $('rMonth').textContent = $('rYear').textContent = '-'; return; }
+    const day = +t.value * +e.value;
+    $('rDay').textContent = inr(day);
+    $('rMonth').textContent = inr(day * 30);
+    $('rYear').textContent = inr(day * 365);
+  }
+
+  t.addEventListener('input', calc);
+  e.addEventListener('input', calc);
+
+  let latestEnergy = null;
+  try {
+    const plants = await window.api.getPlants();
+    if (plants && plants.length) {
+      const records = await window.api.getEnergy({ plantId: plants[0].plantId }).catch(() => []);
+      if (records && records.length) {
+        latestEnergy = records[records.length - 1].energyGenerated;
+      }
+    }
+  } catch (err) {
+    console.error('Failed to load plants or energy for savings', err);
+  }
+
+  $('useToday').onclick = () => {
+    if (latestEnergy !== null) {
+      e.value = latestEnergy;
+    }
+    calc();
+  };
+
+  calc();
+})();
+</script>
+</body>
+</html>

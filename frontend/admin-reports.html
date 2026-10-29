@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Reports &amp; Analytics | SolarSense AI</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="app.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body class="app" data-role="admin" data-title="Reports &amp; Analytics">
+<div id="page" class="content">
+
+  <div class="stat-grid" id="oStats" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))"></div>
+
+  <div class="cols even">
+    <div class="panel"><div class="panel-head"><h3>Plant performance (last 30 days)</h3></div><div class="chart-box"><canvas id="cPerf"></canvas></div></div>
+    <div class="panel"><div class="panel-head"><h3>Maintenance by priority</h3></div><div class="chart-box"><canvas id="cPri"></canvas></div></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h3>Plant performance table</h3></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Plant</th><th>Owner</th><th>Capacity</th><th>Actual (kWh)</th><th>Expected (kWh)</th><th>Performance</th><th>Alerts (14 days)</th></tr></thead>
+        <tbody id="perfBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h3>Generate a report</h3></div>
+    <div class="filters">
+      <label>Report type
+        <select id="kind">
+          <option value="plant">Individual plant report</option>
+          <option value="user">User report</option>
+          <option value="energy">Energy production report</option>
+          <option value="maintenance">Maintenance activity report</option>
+        </select>
+      </label>
+      <label id="lPlant">Plant <select id="sPlant"></select></label>
+      <label id="lUser" class="hidden">User <select id="sUser"></select></label>
+      <label>From <input type="date" id="from"></label>
+      <label>To <input type="date" id="to"></label>
+    </div>
+    <div class="rep-actions"><button type="button" class="btn btn-primary" id="dlBtn">Download PDF</button></div>
+    <div id="rAlert" class="alert" role="alert" style="margin-top:14px"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h3 id="rTitle">Report preview</h3><span class="chip chip-sun" id="rRange"></span></div>
+    <div class="stat-grid" id="rStats" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))"></div>
+    <div id="rTables"></div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h3>Report history</h3></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Report ID</th><th>Type</th><th>Period</th><th>Generated</th><th></th></tr></thead>
+        <tbody id="rHist"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="auth.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+<script>
+(async function () {
+  if (!window.ME) return;
+
+  const KINDS = { plant: 'Plant report', user: 'User report', energy: 'Energy production report', maintenance: 'Maintenance activity report' };
+  const today = iso(new Date());
+  const d30 = new Date(); d30.setDate(d30.getDate() - 29);
+  const kwh = (n) => Math.round(n).toLocaleString('en-IN');
+  const pct = (a, e) => (e ? Math.round((a / e) * 100) : 0);
+  const esc = (s) => String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  /* ---------- Load all data from API ---------- */
+  let plants = [], users = [], maintAll = [], overview = null;
+
+  try {
+    [plants, users, maintAll, overview] = await Promise.all([
+      window.api.getPlants().catch(() => []),
+      window.api.getUsers().catch(() => []),
+      window.api.getMaintenance().catch(() => []),
+      window.api.getAdminOverview().catch(() => null)
+    ]);
+  } catch (err) {
+    console.error('Failed to load initial data', err);
+  }
+
+  /* userOnly = filter to role 'user' — the /api/users endpoint already returns only users */
+  const userOnly = (users || []);
+
+  /* Populate selects */
+  $('sPlant').innerHTML = plants.map((p) => `<option value="${p.plantId}">${esc(p.plantName)} (${p.plantId})</option>`).join('') || '<option value="">No plants</option>';
+  $('sUser').innerHTML = userOnly.map((u) => `<option value="${String(u._id)}">${esc(u.name)} (${u.email})</option>`).join('') || '<option value="">No users yet</option>';
+  $('from').value = iso(d30); $('to').value = today; $('from').max = $('to').max = today;
+
+  /* ---------- Analytics (top of page) from /api/admin/overview ---------- */
+  if (overview) {
+    const byPlant = (overview.energy && overview.energy.byPlant) || [];
+    const maint   = overview.maintenance || {};
+    const usersO  = overview.users || {};
+    const total30A = byPlant.reduce((s, x) => s + (x.actual30 || 0), 0);
+    const total30E = byPlant.reduce((s, x) => s + (x.expected30 || 0), 0);
+
+    $('oStats').innerHTML = [
+      ['Total energy generated', kwh(overview.energy ? overview.energy.totalKwh : 0) + ' kWh', 'green'],
+      ['Last 30 days',            kwh(total30A) + ' kWh', ''],
+      ['Fleet performance',       pct(total30A, total30E) + '%', ''],
+      ['Users',                   usersO.total || 0, ''],
+      ['Open maintenance requests', maint.open || 0, '']
+    ].map(([l, v, c]) => `<div class="stat-card ${c}"><small>${l}</small><b>${v}</b></div>`).join('');
+
+    /* Performance table */
+    $('perfBody').innerHTML = byPlant.map((x) => {
+      const pc = pct(x.actual30 || 0, x.expected30 || 0);
+      const chip = pc >= 90 ? 'chip-leaf' : pc >= 75 ? 'chip-sun' : 'chip-warn';
+      return `<tr><td><b>${esc(x.plantId)}</b> ${esc(x.name)}</td><td>${esc(x.owner)}</td><td>${x.capacity} kW</td><td>${kwh(x.actual30 || 0)}</td><td>${kwh(x.expected30 || 0)}</td>
+        <td><span class="chip ${chip}">${pc}%</span></td><td>${x.alerts14 || 0}</td></tr>`;
+    }).join('') || '<tr><td colspan="7" style="color:var(--muted)">No plant data available.</td></tr>';
+
+    /* Plant performance chart */
+    new Chart($('cPerf'), { type: 'bar',
+      data: { labels: byPlant.map((x) => x.name), datasets: [
+        { label: 'Actual (kWh)', data: byPlant.map((x) => Math.round(x.actual30 || 0)), backgroundColor: '#F5A300', borderRadius: 5 },
+        { label: 'Expected (kWh)', data: byPlant.map((x) => Math.round(x.expected30 || 0)), backgroundColor: '#0F1F3D', borderRadius: 5 }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true } } } });
+
+    /* Priority doughnut from overview.maintenance.byPriority */
+    const PR = ['Low', 'Medium', 'High', 'Critical'];
+    const byPri = (maint.byPriority) || {};
+    new Chart($('cPri'), { type: 'doughnut',
+      data: { labels: PR, datasets: [{ data: PR.map((p) => byPri[p] || 0), backgroundColor: ['#9FB0CC', '#F5A300', '#E5572F', '#B3261E'] }] },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } } });
+  } else {
+    $('oStats').innerHTML = '<div class="stat-card"><small>Overview</small><b>Failed to load</b></div>';
+    $('perfBody').innerHTML = '<tr><td colspan="7" style="color:var(--muted)">Could not load analytics.</td></tr>';
+  }
+
+  /* ---------- Report builder ---------- */
+
+  /* Helper to find owner name from a populated userId field */
+  function ownerName(u) {
+    if (!u) return 'Unassigned';
+    if (typeof u === 'object') return u.name || 'Unassigned';
+    // plain ObjectId string — look up in users array
+    const found = userOnly.find((x) => String(x._id) === String(u));
+    return found ? found.name : 'Unassigned';
+  }
+
+  const mHead = ['ID', 'Issue', 'Plant', 'Owner', 'Date', 'Priority', 'Status', 'Technician'];
+  const mRow = (m) => [
+    m.requestId, m.title, m.plantId,
+    ownerName(m.userId),
+    (m.createdAt || '').slice(0, 10),
+    m.priority, m.status,
+    m.assignedTechnician || 'Not assigned'
+  ];
+
+  async function build(k, P) {
+    const range = P.from + ' to ' + P.to;
+    const inR = (d) => d >= P.from && d <= P.to;
+
+    /* Use already-loaded maintAll filtered to the date range */
+    const reqs = maintAll.filter((m) => {
+      const d = (m.createdAt || '').slice(0, 10);
+      return inR(d);
+    });
+
+    if (k === 'plant') {
+      const p = plants.find((x) => x.plantId === P.plant);
+      if (!p) return null;
+      /* Fetch energy from API */
+      let rows = [];
+      try {
+        const raw = await window.api.getEnergy({ plantId: p.plantId, from: P.from, to: P.to });
+        rows = (raw || []).map((r) => ({ date: r.date, energy: r.energyGenerated, expected: r.expectedEnergy }));
+      } catch (e) { rows = []; }
+      const a = sumKwh(rows), e = rows.reduce((s, r) => s + (r.expected || 0), 0);
+      const al = getAlerts(rows, rows.length);
+      const pReqs = reqs.filter((m) => m.plantId === p.plantId);
+      return {
+        title: 'Plant report: ' + p.plantName, sub: range,
+        stats: [['Energy generated', kwh(a) + ' kWh'], ['Expected', kwh(e) + ' kWh'], ['Performance', pct(a, e) + '%'], ['Fault alerts', al.length]],
+        tables: [
+          { title: 'Plant details', head: ['Field', 'Value'], body: [
+            ['Plant ID', p.plantId], ['Name', p.plantName], ['Owner', ownerName(p.userId)],
+            ['Location', p.location], ['Capacity', p.capacity + ' kW'],
+            ['Panels', String(p.numberOfPanels)], ['Installed', p.installationDate], ['Status', p.status]
+          ]},
+          { title: 'Fault alerts', head: ['Date', 'Actual (kWh)', 'Expected (kWh)', 'Drop', 'Recommendation'],
+            body: al.map((x) => [x.date, String(x.actual), String(x.expected), x.drop + '%', x.advice]) },
+          { title: 'Maintenance requests', head: mHead, body: pReqs.map(mRow) }
+        ]
+      };
+    }
+
+    if (k === 'user') {
+      const u = userOnly.find((x) => String(x._id) === P.user);
+      if (!u) return null;
+      const uPlants = plants.filter((p) => p.userId && String(p.userId._id || p.userId) === String(u._id));
+      const energyPerPlant = await Promise.all(uPlants.map(async (p) => {
+        try {
+          const raw = await window.api.getEnergy({ plantId: p.plantId, from: P.from, to: P.to });
+          return sumKwh((raw || []).map((r) => ({ energy: r.energyGenerated })));
+        } catch (e) { return 0; }
+      }));
+      const myReqs = reqs.filter((m) => m.userId && String(m.userId._id || m.userId) === String(u._id));
+      let myOrders = [];
+      try {
+        const allOrders = await window.api.getOrders();
+        myOrders = (allOrders || []).filter((o) => {
+          const uid = o.userId && (o.userId._id || o.userId);
+          return String(uid) === String(u._id) && inR((o.createdAt || '').slice(0, 10));
+        });
+      } catch (e) { myOrders = []; }
+      return {
+        title: 'User report: ' + u.name, sub: range,
+        stats: [['Solar plants', uPlants.length], ['Energy generated', kwh(energyPerPlant.reduce((s, v) => s + v, 0)) + ' kWh'],
+                ['Maintenance requests', myReqs.length], ['Orders', myOrders.length]],
+        tables: [
+          { title: 'User details', head: ['Field', 'Value'], body: [
+            ['Name', u.name], ['Email', u.email], ['Phone', u.phone || '-'],
+            ['Status', u.status], ['Registered', (u.createdAt || '').slice(0, 10)]
+          ]},
+          { title: 'Solar plants', head: ['ID', 'Plant', 'Location', 'Capacity', 'Status', 'Energy in period'],
+            body: uPlants.map((p, i) => [p.plantId, p.plantName, p.location, p.capacity + ' kW', p.status, kwh(energyPerPlant[i]) + ' kWh']) },
+          { title: 'Maintenance requests', head: mHead, body: myReqs.map(mRow) },
+          { title: 'Orders', head: ['Order', 'Date', 'Items', 'Total', 'Status'],
+            body: myOrders.map((o) => [o.orderId, (o.createdAt || '').slice(0, 10),
+              (o.items || []).map((i) => i.name + ' x ' + i.qty).join(', '),
+              'Rs. ' + (o.total || 0).toLocaleString('en-IN'), o.status]) }
+        ]
+      };
+    }
+
+    if (k === 'energy') {
+      /* Fetch all energy in date range */
+      let allEnergy = [];
+      try {
+        allEnergy = await window.api.getEnergy({ from: P.from, to: P.to });
+      } catch (e) { allEnergy = []; }
+      /* Group by plantId */
+      const perPlant = plants.map((p) => {
+        const rows = (allEnergy || []).filter((r) => r.plantId === p.plantId);
+        const a = rows.reduce((s, r) => s + r.energyGenerated, 0);
+        const e = rows.reduce((s, r) => s + r.expectedEnergy, 0);
+        return { p, a, e };
+      });
+      const mon = {};
+      (allEnergy || []).forEach((r) => {
+        const m = r.date.slice(0, 7);
+        mon[m] = mon[m] || [0, 0];
+        mon[m][0] += r.energyGenerated;
+        mon[m][1] += r.expectedEnergy;
+      });
+      const TA = perPlant.reduce((s, x) => s + x.a, 0);
+      const TE = perPlant.reduce((s, x) => s + x.e, 0);
+      return {
+        title: 'Energy production report', sub: range,
+        stats: [['Total generated', kwh(TA) + ' kWh'], ['Expected', kwh(TE) + ' kWh'],
+                ['Performance', pct(TA, TE) + '%'], ['Plants', perPlant.length]],
+        tables: [
+          { title: 'Production by plant', head: ['ID', 'Plant', 'Capacity', 'Actual (kWh)', 'Expected (kWh)', 'Performance'],
+            body: perPlant.map((x) => [x.p.plantId, x.p.plantName, x.p.capacity + ' kW', kwh(x.a), kwh(x.e), pct(x.a, x.e) + '%']) },
+          { title: 'Monthly production (all plants)', head: ['Month', 'Actual (kWh)', 'Expected (kWh)', 'Performance'],
+            body: Object.entries(mon).map(([m, v]) => [m, kwh(v[0]), kwh(v[1]), pct(v[0], v[1]) + '%']) }
+        ]
+      };
+    }
+
+    /* Maintenance report */
+    const cnt = (key, vals) => vals.map((v) => [v, String(reqs.filter((m) => m[key] === v).length)]);
+    const PR = ['Low', 'Medium', 'High', 'Critical'];
+    return {
+      title: 'Maintenance activity report', sub: range,
+      stats: [['Total requests', reqs.length],
+              ['Pending', reqs.filter((m) => m.status === 'Pending').length],
+              ['Active',  reqs.filter((m) => m.status === 'Assigned' || m.status === 'In Progress').length],
+              ['Resolved or closed', reqs.filter((m) => m.status === 'Resolved' || m.status === 'Closed').length]],
+      tables: [
+        { title: 'By status', head: ['Status', 'Requests'], body: cnt('status', ['Pending', 'Assigned', 'In Progress', 'Resolved', 'Closed']) },
+        { title: 'By priority', head: ['Priority', 'Requests'], body: cnt('priority', PR) },
+        { title: 'All requests in period', head: mHead, body: reqs.map(mRow) }
+      ]
+    };
+  }
+
+  function show(r) {
+    if (!r) {
+      $('rTitle').textContent = 'Report preview'; $('rRange').textContent = '';
+      $('rStats').innerHTML = '';
+      $('rTables').innerHTML = '<p class="empty">Nothing to show. Add a plant or user first.</p>';
+      return;
+    }
+    $('rTitle').textContent = r.title; $('rRange').textContent = r.sub;
+    $('rStats').innerHTML = r.stats.map(([l, v]) => `<div class="stat-card"><small>${l}</small><b>${v}</b></div>`).join('');
+    $('rTables').innerHTML = r.tables.map((t) => `
+      <h3 style="font-size:16px;margin:22px 0 10px">${t.title}</h3>
+      <div class="table-wrap"><table><thead><tr>${t.head.map((h) => `<th>${h}</th>`).join('')}</tr></thead><tbody>
+        ${t.body.length
+          ? t.body.slice(0, 15).map((row) => '<tr>' + row.map((c) => `<td>${esc(String(c == null ? '' : c))}</td>`).join('') + '</tr>').join('')
+          : `<tr><td colspan="${t.head.length}" style="color:var(--muted)">No records in this period.</td></tr>`}
+      </tbody></table></div>
+      ${t.body.length > 15 ? `<p class="note">Showing the first 15 of ${t.body.length} rows. The PDF has all rows.</p>` : ''}`).join('');
+  }
+
+  const params = () => ({ kind: $('kind').value, plant: $('sPlant').value, user: $('sUser').value, from: $('from').value, to: $('to').value });
+  const note = (type, msg) => { const b = $('rAlert'); b.className = 'alert show ' + type; b.textContent = msg; };
+
+  let lastBuilt = null;
+
+  async function refresh() {
+    const P = params();
+    $('lPlant').classList.toggle('hidden', P.kind !== 'plant');
+    $('lUser').classList.toggle('hidden', P.kind !== 'user');
+    $('rAlert').className = 'alert';
+    if (!P.from || !P.to || P.from > P.to) {
+      note('error', 'Choose a valid date range: From must not be after To.');
+      $('rStats').innerHTML = ''; $('rTables').innerHTML = '';
+      lastBuilt = null; return null;
+    }
+    try {
+      const r = await build(P.kind, P);
+      show(r);
+      lastBuilt = r ? { r, P } : null;
+      return r;
+    } catch (err) {
+      console.error('Report build error', err);
+      note('error', 'Failed to generate report: ' + (err.message || 'Unknown error'));
+      lastBuilt = null; return null;
+    }
+  }
+
+  function pdf(r) {
+    if (!window.jspdf) return false;
+    const doc = new window.jspdf.jsPDF(), W = doc.internal.pageSize.getWidth(), head = { fillColor: [15, 31, 61] };
+    doc.setFillColor(15, 31, 61); doc.rect(0, 0, W, 30, 'F');
+    doc.setTextColor(255); doc.setFontSize(18); doc.text('SolarSense AI', 14, 14);
+    doc.setFontSize(10); doc.text(r.title, 14, 22);
+    doc.setTextColor(60); doc.setFontSize(9);
+    doc.text('Period: ' + r.sub + '   |   Generated: ' + today + '   |   By: ' + ME.name, 14, 38);
+    doc.autoTable({ startY: 44, head: [['Summary', '']], body: r.stats.map(([l, v]) => [l, String(v)]), headStyles: { fillColor: [30, 158, 106] }, theme: 'grid' });
+    let y = doc.lastAutoTable.finalY + 10;
+    r.tables.forEach((t) => {
+      if (y > 255) { doc.addPage(); y = 18; }
+      doc.setTextColor(15, 31, 61); doc.setFontSize(12); doc.text(t.title, 14, y);
+      const body = t.body.length ? t.body.map((row) => row.map(String)) : [['No records in this period'].concat(Array(t.head.length - 1).fill(''))];
+      doc.autoTable({ startY: y + 3, head: [t.head], body, headStyles: head, theme: 'striped', styles: { fontSize: 8 } });
+      y = doc.lastAutoTable.finalY + 10;
+    });
+    const pages = doc.getNumberOfPages();
+    for (let i = 1; i <= pages; i++) { doc.setPage(i); doc.setFontSize(8); doc.setTextColor(120); doc.text('SolarSense AI | Admin report | Page ' + i + ' of ' + pages, 14, 290); }
+    doc.save('SolarSense_' + r.title.split(':')[0].replace(/\s+/g, '_') + '_' + today + '.pdf');
+    return true;
+  }
+
+  async function renderHistory() {
+    try {
+      const reports = await window.api.getReports();
+      const mine = (reports || []).slice(0, 20);
+      $('rHist').innerHTML = mine.length ? mine.map((x) => `<tr><td><b>${x.reportId || (x._id || '').slice(-6)}</b></td>
+        <td>${KINDS[x.reportType] || x.reportType}</td>
+        <td>${x.startDate} to ${x.endDate}</td>
+        <td>${(x.generatedAt || '').slice(0, 10)}</td>
+        <td><button class="link-btn" style="color:var(--navy)" type="button" data-repid="${x._id}"
+          data-kind="${x.reportType}" data-plant="${x.plantId || ''}"
+          data-from="${x.startDate}" data-to="${x.endDate}">Download again</button></td></tr>`).join('')
+        : '<tr><td colspan="5" style="color:var(--muted)">No reports generated yet.</td></tr>';
+    } catch (err) {
+      console.error('Failed to load report history', err);
+      $('rHist').innerHTML = '<tr><td colspan="5" style="color:var(--muted)">Could not load report history.</td></tr>';
+    }
+  }
+
+  $('dlBtn').onclick = async () => {
+    $('dlBtn').disabled = true;
+    const r = await refresh();
+    $('dlBtn').disabled = false;
+    if (!r) return;
+    if (!pdf(r)) { note('error', 'PDF library could not load. Check your internet connection and reload.'); return; }
+    const P = params();
+    try {
+      await window.api.createReport({
+        reportType: P.kind,
+        plantId: P.kind === 'plant' ? P.plant : (P.kind === 'user' ? '' : ''),
+        startDate: P.from,
+        endDate: P.to,
+        options: { kind: P.kind, plant: P.plant, user: P.user }
+      });
+      note('ok', 'Report downloaded and saved to history.');
+      await renderHistory();
+    } catch (err) {
+      console.error('Failed to save report record', err);
+      note('ok', 'Report downloaded. (History save failed: ' + (err.message || 'unknown') + ')');
+    }
+  };
+
+  $('rHist').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-repid]');
+    if (!b) return;
+    /* Rebuild from stored metadata and re-download */
+    const P = { kind: b.dataset.kind, plant: b.dataset.plant, user: '', from: b.dataset.from, to: b.dataset.to };
+    try {
+      const r = await build(P.kind, P);
+      if (r && !pdf(r)) note('error', 'PDF library could not load.');
+    } catch (err) {
+      note('error', 'Could not rebuild report: ' + (err.message || 'unknown'));
+    }
+  });
+
+  ['kind', 'sPlant', 'sUser'].forEach((id) => $(id).addEventListener('change', refresh));
+  ['from', 'to'].forEach((id) => $(id).addEventListener('change', refresh));
+
+  await refresh();
+  await renderHistory();
+})();
+</script>
+</body>
+</html>

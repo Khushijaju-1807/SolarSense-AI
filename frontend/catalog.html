@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Product Catalog | SolarSense AI</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="app" data-role="user" data-title="Product Catalog">
+
+<div id="page" class="content">
+
+  <div class="panel">
+    <div class="shop-bar">
+      <input type="search" id="search" placeholder="Search panels, inverters, batteries..." aria-label="Search products">
+      <select id="sort" aria-label="Sort products">
+        <option value="featured">Sort: Featured</option>
+        <option value="low">Price: low to high</option>
+        <option value="high">Price: high to low</option>
+        <option value="name">Name: A to Z</option>
+      </select>
+      <button class="btn btn-primary cart-btn" id="cartBtn" type="button">Cart<span class="cnt" id="cartCount">0</span></button>
+    </div>
+    <div class="chips" id="chips" style="margin-top:14px"></div>
+  </div>
+
+  <div class="shop-grid" id="grid"></div>
+
+  <div class="panel" id="trackPanel" style="display:none">
+    <div class="panel-head"><h3 id="tTitle">Order progress</h3><button class="link-btn" type="button" id="tClose">Close</button></div>
+    <div class="tracker" id="tracker"></div>
+    <p class="note" id="tInfo"></p>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h3>My orders</h3></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Order ID</th><th>Date</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th></th></tr></thead>
+        <tbody id="orderBody"></tbody>
+      </table>
+    </div>
+    <p class="note">Sample prices. There is no online payment on this site: the payment method you choose is recorded with your order, and the SolarSense team confirms the order and collects payment as agreed.</p>
+  </div>
+
+</div>
+
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Cart">
+  <div class="drawer-head"><h3>Your cart</h3><button id="closeCart" type="button" aria-label="Close cart">&times;</button></div>
+  <div class="drawer-body" id="cartBody"></div>
+  <form class="drawer-foot" id="orderForm" novalidate>
+    <div class="total-row"><span>Total</span><span id="cartTotal">-</span></div>
+    <div id="orderAlert" class="alert" role="alert"></div>
+    <label>Delivery address
+      <textarea id="addr" style="min-height:70px" placeholder="House/plot no., street, city, PIN"></textarea>
+      <span class="err"></span>
+    </label>
+    <label>Phone number
+      <input type="tel" id="ophone" maxlength="10" placeholder="10-digit mobile number">
+      <span class="err"></span>
+    </label>
+    <label>Payment method
+      <select id="opay">
+        <option value="Cash on Delivery">Cash on Delivery</option>
+        <option value="UPI">UPI (on confirmation)</option>
+        <option value="Bank Transfer">Bank transfer (on confirmation)</option>
+        <option value="Card on Delivery">Card on delivery</option>
+      </select>
+    </label>
+    <small style="color:var(--muted)">No money is charged on this site. Your choice is recorded and the team will contact you.</small>
+    <label>Notes (optional)
+      <input type="text" id="onotes" placeholder="Preferred delivery time, site details...">
+    </label>
+    <button class="btn btn-primary" type="submit">Send order request</button>
+  </form>
+</aside>
+
+<script src="api.js"></script>
+<script src="auth.js"></script>
+<script src="data.js"></script>
+<script src="products.js"></script>
+<script src="app.js"></script>
+<script>
+(async function () {
+  if (!window.ME) return;
+
+  const esc = (s) => String(s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const cartKey = 'ss_cart_' + (ME._id || ME.id);
+  let cart = {};
+  try { cart = JSON.parse(localStorage.getItem(cartKey)) || {}; } catch (e) {}
+  const saveCart = () => localStorage.setItem(cartKey, JSON.stringify(cart));
+  const money = (n) => '\u20B9' + Number(n).toLocaleString('en-IN');
+
+  let products = [];
+  try {
+    const raw = await window.api.getProducts();
+    products = (raw || []).map((p) => ({
+      id: p.productId,
+      name: p.name,
+      category: p.category,
+      price: p.price,
+      unit: p.unit,
+      desc: p.description || '',
+      specs: p.specs || [],
+      stock: p.stock,
+      img: p.img
+    }));
+  } catch (err) {
+    console.error('Failed to load products from API', err);
+    products = (typeof PRODUCTS !== 'undefined' ? PRODUCTS : []).map(p => ({
+      ...p,
+      desc: p.description || p.desc || ''
+    }));
+  }
+
+  let cat = 'All', q = '', sort = 'featured';
+  const cats = ['All', ...new Set(products.map((p) => p.category))];
+
+  /* ----- catalog ----- */
+  function renderChips() {
+    $('chips').innerHTML = cats.map((c) => `<button type="button" class="chipbtn ${c === cat ? 'active' : ''}" data-cat="${c}">${c}</button>`).join('');
+  }
+
+  function renderGrid() {
+    let list = products.filter((p) => (cat === 'All' || p.category === cat) &&
+      (p.name + ' ' + p.category + ' ' + p.desc).toLowerCase().includes(q));
+    if (sort === 'low') list.sort((a, b) => a.price - b.price);
+    if (sort === 'high') list.sort((a, b) => b.price - a.price);
+    if (sort === 'name') list.sort((a, b) => a.name.localeCompare(b.name));
+    $('grid').innerHTML = list.length ? list.map((p) => `
+      <article class="pcard">
+        <div class="pimg">${p.img ? `<img src="${p.img}" alt="${esc(p.name)}">` : (typeof productArt === 'function' ? productArt(p.category) : '')}</div>
+        <div class="pbody">
+          <span class="chip ${p.stock === 'In stock' ? 'chip-leaf' : 'chip-sun'}" style="align-self:flex-start">${p.stock}</span>
+          <h3>${esc(p.name)}</h3>
+          <p>${esc(p.desc)}</p>
+          <ul class="specs">${p.specs.map((s) => `<li>${esc(s)}</li>`).join('')}</ul>
+          <div class="pfoot">
+            <div class="price">${money(p.price)} <small>/ ${p.unit}</small></div>
+            <button class="btn btn-primary btn-sm" type="button" data-act="add" data-id="${p.id}" ${p.stock === 'Out of stock' ? 'disabled' : ''}>Add to cart</button>
+          </div>
+        </div>
+      </article>`).join('') : '<div class="panel empty" style="grid-column:1/-1">No products match your search. Try another word or category.</div>';
+  }
+
+  /* ----- cart ----- */
+  function cartItems() {
+    return Object.entries(cart).map(([id, n]) => ({ p: products.find((x) => x.id === id), n })).filter((x) => x.p);
+  }
+
+  function renderCart() {
+    const items = cartItems();
+    const count = items.reduce((a, i) => a + i.n, 0);
+    const total = items.reduce((a, i) => a + i.n * i.p.price, 0);
+    $('cartCount').textContent = count;
+    $('cartTotal').textContent = money(total);
+    $('orderForm').style.display = items.length ? 'grid' : 'none';
+    $('cartBody').innerHTML = items.length ? items.map(({ p, n }) => `
+      <div class="citem">
+        <div><b>${esc(p.name)}</b><br><small style="color:var(--muted)">${money(p.price)} / ${p.unit}</small></div>
+        <b>${money(p.price * n)}</b>
+        <div class="qty">
+          <button type="button" data-act="dec" data-id="${p.id}" aria-label="Decrease">-</button>
+          <span>${n}</span>
+          <button type="button" data-act="inc" data-id="${p.id}" aria-label="Increase">+</button>
+        </div>
+        <button class="link-btn" type="button" data-act="rm" data-id="${p.id}">Remove</button>
+      </div>`).join('') : '<p class="empty">Your cart is empty.<br>Add products from the catalog.</p>';
+  }
+
+  const openCart = () => { $('drawer').classList.add('open'); $('scrim').classList.add('open'); };
+  const closeCart = () => { $('drawer').classList.remove('open'); $('scrim').classList.remove('open'); };
+
+  /* ----- orders from API ----- */
+  let myOrders = [];
+  const stClass = { Placed: 'Pending', Confirmed: 'Assigned', Dispatched: 'InProgress', Delivered: 'Resolved', Cancelled: 'Closed' };
+
+  async function loadOrders() {
+    try {
+      myOrders = await window.api.getOrders();
+      renderOrders();
+    } catch (err) {
+      console.error('Failed to load orders', err);
+    }
+  }
+
+  function renderOrders() {
+    $('orderBody').innerHTML = (myOrders && myOrders.length) ? myOrders.map((o) => `
+      <tr>
+        <td><b>${o.orderId}</b></td><td>${(o.createdAt || '').slice(0, 10)}</td>
+        <td style="white-space:normal;min-width:200px">${(o.items || []).map((i) => esc(i.name) + ' x ' + i.qty).join('<br>')}</td>
+        <td>${money(o.total)}</td>
+        <td>${esc(o.paymentMethod || 'Cash on Delivery')}<br><span class="st ${o.paymentStatus === 'Paid' ? 'st-Resolved' : 'st-Pending'}">${o.paymentStatus === 'Paid' ? 'Paid' : 'Payment pending'}</span></td>
+        <td><span class="st st-${stClass[o.status] || 'Pending'}">${o.status}</span></td>
+        <td><button class="link-btn" style="color:var(--navy)" type="button" data-act="track" data-id="${o.orderId}">Track</button>
+          ${o.status === 'Placed' ? `<button class="link-btn" type="button" data-act="cancel" data-id="${o.orderId}">Cancel</button>` : ''}</td>
+      </tr>`).join('') : '<tr><td colspan="7" style="color:var(--muted)">You have not placed any orders yet.</td></tr>';
+  }
+
+  function trackOrder(id) {
+    const o = myOrders.find((x) => x.orderId === id);
+    if (!o) return;
+    const STEPS = ['Placed', 'Confirmed', 'Dispatched', 'Delivered'];
+    const idx = STEPS.indexOf(o.status);
+    $('tTitle').textContent = o.orderId + ': ' + (o.status === 'Cancelled' ? 'Cancelled' : 'Order progress');
+    $('tracker').innerHTML = o.status === 'Cancelled'
+      ? '<div class="tstep now">Cancelled</div>'
+      : STEPS.map((s, i) => `<div class="tstep ${i < idx ? 'done' : i === idx ? 'now' : ''}">${s}</div>`).join('');
+    $('tInfo').textContent = 'Total ' + money(o.total) + '. Payment: ' + (o.paymentMethod || 'Cash on Delivery') + ' (' + (o.paymentStatus === 'Paid' ? 'received' : 'pending') + '). Delivery to: ' + o.address;
+    $('trackPanel').style.display = 'block';
+    $('trackPanel').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  /* ----- events ----- */
+  document.addEventListener('click', async (e) => {
+    const chip = e.target.closest('[data-cat]');
+    if (chip) { cat = chip.dataset.cat; renderChips(); renderGrid(); return; }
+    const b = e.target.closest('[data-act]');
+    if (!b) return;
+    const id = b.dataset.id, act = b.dataset.act;
+    if (act === 'add') { cart[id] = (cart[id] || 0) + 1; saveCart(); renderCart(); openCart(); }
+    if (act === 'inc') { cart[id]++; saveCart(); renderCart(); }
+    if (act === 'dec') { cart[id]--; if (cart[id] <= 0) delete cart[id]; saveCart(); renderCart(); }
+    if (act === 'rm') { delete cart[id]; saveCart(); renderCart(); }
+    if (act === 'track') { trackOrder(id); return; }
+    if (act === 'cancel') {
+      if (!confirm('Are you sure you want to cancel this order?')) return;
+      try {
+        await window.api.cancelOrder(id);
+        await loadOrders();
+      } catch (err) {
+        alert(err.message || 'Could not cancel order.');
+      }
+    }
+  });
+
+  $('search').addEventListener('input', (e) => { q = e.target.value.trim().toLowerCase(); renderGrid(); });
+  $('sort').addEventListener('change', (e) => { sort = e.target.value; renderGrid(); });
+  $('tClose').onclick = () => ($('trackPanel').style.display = 'none');
+  $('cartBtn').onclick = openCart;
+  $('closeCart').onclick = closeCart;
+  $('scrim').onclick = closeCart;
+
+  $('orderForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const addr = $('addr'), phone = $('ophone'), box = $('orderAlert');
+    box.className = 'alert';
+    const ok1 = setErr(addr, addr.value.trim().length >= 10 ? '' : 'Enter your full delivery address (10+ characters).');
+    const ok2 = setErr(phone, PHONE_RE.test(phone.value.trim()) ? '' : 'Enter a valid 10-digit mobile number.');
+    const items = cartItems();
+    if (!ok1 || !ok2 || !items.length) return;
+
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    if (submitBtn) submitBtn.disabled = true;
+
+    try {
+      const orderPayload = {
+        items: items.map((i) => ({ productId: i.p.id, qty: i.n })),
+        address: addr.value.trim(),
+        phone: phone.value.trim(),
+        notes: $('onotes').value.trim(),
+        paymentMethod: $('opay').value
+      };
+
+      await window.api.createOrder(orderPayload);
+      cart = {};
+      saveCart();
+      renderCart();
+      await loadOrders();
+      e.target.reset();
+      closeCart();
+      window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+    } catch (err) {
+      box.className = 'alert show error';
+      box.textContent = err.message || 'Failed to submit order request.';
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+  });
+
+  /* prefill phone from the account */
+  if (ME.phone) $('ophone').value = ME.phone;
+
+  renderChips();
+  renderGrid();
+  renderCart();
+  await loadOrders();
+})();
+</script>
+</body>
+</html>

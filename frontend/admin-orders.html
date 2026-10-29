@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Orders | SolarSense AI</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="app" data-role="admin" data-title="Order Management">
+<div id="page" class="content">
+  <div class="stat-grid" id="oStats" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))"></div>
+  <div class="panel">
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Search by order ID, customer or product" aria-label="Search orders">
+      <select id="fSt" aria-label="Filter by status">
+        <option value="">All statuses</option><option>Placed</option><option>Confirmed</option><option>Dispatched</option><option>Delivered</option><option>Cancelled</option>
+      </select>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Order ID</th><th>Customer</th><th>Date</th><th>Items</th><th>Total</th><th>Payment</th><th>Status</th><th></th></tr></thead>
+        <tbody id="oBody"></tbody>
+      </table>
+    </div>
+    <p class="note">Orders are requests. Confirm each one, collect payment using the method the customer chose, mark it as Paid, then move it to Dispatched and Delivered. The customer is notified at every step.</p>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="auth.js"></script>
+<script src="data.js"></script>
+<script src="admin-data.js"></script>
+<script src="products.js"></script>
+<script src="app.js"></script>
+<script>
+(async function () {
+  if (!window.ME) return;
+
+  const FLOW = ['Placed', 'Confirmed', 'Dispatched', 'Delivered'];
+  const cls = { Placed: 'Pending', Confirmed: 'Assigned', Dispatched: 'InProgress', Delivered: 'Resolved', Cancelled: 'Closed' };
+  const money = (n) => '\u20B9' + Number(n).toLocaleString('en-IN');
+  let q = '', fs = '';
+  let ordersList = [];
+
+  async function loadOrders() {
+    try {
+      ordersList = await window.api.getOrders();
+      render();
+    } catch (err) {
+      console.error('Failed to load orders', err);
+    }
+  }
+
+  function customerName(o) {
+    if (o.userId && o.userId.name) return o.userId.name;
+    return o.userName || 'Customer';
+  }
+
+  function render() {
+    const all = ordersList;
+    const n = (f) => all.filter(f).length;
+    $('oStats').innerHTML = [
+      ['Total orders', all.length, ''],
+      ['New (placed)', n((o) => o.status === 'Placed'), ''],
+      ['In progress', n((o) => o.status === 'Confirmed' || o.status === 'Dispatched'), ''],
+      ['Delivered', n((o) => o.status === 'Delivered'), 'green'],
+      ['Delivered value', money(all.filter((o) => o.status === 'Delivered').reduce((a, o) => a + o.total, 0)), 'green']
+    ].map(([l, v, c]) => `<div class="stat-card ${c}"><small>${l}</small><b>${v}</b></div>`).join('');
+
+    const list = all.filter((o) => {
+      const cName = customerName(o);
+      const itemsStr = (o.items || []).map((i) => i.name).join(' ');
+      return (!fs || o.status === fs) && (o.orderId + ' ' + cName + ' ' + itemsStr).toLowerCase().includes(q);
+    });
+
+    $('oBody').innerHTML = list.length ? list.map((o) => {
+      const i = FLOW.indexOf(o.status);
+      const done = o.status === 'Delivered' || o.status === 'Cancelled';
+      const ctl = done ? `<span class="st st-${cls[o.status] || 'Pending'}">${o.status}</span>`
+        : `<select class="row-select" data-id="${o.orderId}" aria-label="Order status">
+             <option selected>${o.status}</option>
+             ${i >= 0 && i < FLOW.length - 1 ? `<option>${FLOW[i + 1]}</option>` : ''}
+             <option>Cancelled</option></select>`;
+
+      return `<tr>
+        <td><b>${o.orderId}</b></td>
+        <td>${esc(customerName(o))}</td>
+        <td>${(o.createdAt || '').slice(0, 10)}</td>
+        <td style="white-space:normal;min-width:200px">${(o.items || []).map((x) => esc(x.name) + ' x ' + x.qty).join('<br>')}</td>
+        <td>${money(o.total)}</td>
+        <td>${esc(o.paymentMethod || 'Cash on Delivery')}<br><span class="st ${o.paymentStatus === 'Paid' ? 'st-Resolved' : 'st-Pending'}">${o.paymentStatus === 'Paid' ? 'Paid' : 'Pending'}</span></td>
+        <td>${ctl}</td>
+        <td><button class="link-btn" style="color:var(--navy)" type="button" data-view="${o.orderId}">Details</button></td></tr>`;
+    }).join('') : '<tr><td colspan="8" style="color:var(--muted)">No orders found.</td></tr>';
+  }
+
+  function view(o) {
+    const row = (k, v) => `<div class="detail"><small>${k}</small><b style="font-size:15px;word-break:break-word">${v}</b></div>`;
+    openModal(o.orderId, `
+      <div class="detail-grid" style="grid-template-columns:1fr 1fr">
+        ${row('Customer', esc(customerName(o)))}${row('Phone', esc(o.phone || (o.userId ? o.userId.phone : '-')))}
+        ${row('Date', (o.createdAt || '').slice(0, 10))}${row('Status', o.status)}
+        ${row('Payment method', esc(o.paymentMethod || 'Cash on Delivery'))}${row('Payment status', o.paymentStatus === 'Paid' ? 'Paid' + (o.paidAt ? ' on ' + o.paidAt.slice(0, 10) : '') : 'Pending')}
+        <div class="detail" style="grid-column:1/-1"><small>Delivery address</small><b style="font-size:15px">${esc(o.address)}</b></div>
+        ${o.notes ? `<div class="detail" style="grid-column:1/-1"><small>Customer notes</small><b style="font-size:15px">${esc(o.notes)}</b></div>` : ''}
+      </div>
+      <div class="table-wrap" style="margin-top:14px"><table>
+        <thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Amount</th></tr></thead>
+        <tbody>${(o.items || []).map((i) => `<tr><td style="white-space:normal">${esc(i.name)}</td><td>${i.qty}</td><td>${money(i.price)}</td><td>${money(i.price * i.qty)}</td></tr>`).join('')}
+        <tr><td colspan="3"><b>Total</b></td><td><b>${money(o.total)}</b></td></tr></tbody></table></div>
+      ${o.status === 'Cancelled' ? '' : `<div style="margin-top:14px"><button class="btn btn-primary btn-sm" type="button" id="payBtn">${o.paymentStatus === 'Paid' ? 'Set payment back to Pending' : 'Mark payment as received'}</button></div>`}`);
+    const pb = document.getElementById('payBtn');
+    if (pb) pb.onclick = async () => {
+      pb.disabled = true;
+      try {
+        await window.api.put('/orders/' + o.orderId + '/payment', { paymentStatus: o.paymentStatus === 'Paid' ? 'Pending' : 'Paid' });
+        closeModal();
+        await loadOrders();
+      } catch (err) {
+        alert(err.message || 'Could not update payment.');
+        pb.disabled = false;
+      }
+    };
+  }
+
+  $('oBody').addEventListener('change', async (e) => {
+    const s = e.target.closest('select[data-id]');
+    if (!s) return;
+    if (s.value === 'Cancelled' && !confirm('Cancel order ' + s.dataset.id + '?')) {
+      render();
+      return;
+    }
+
+    try {
+      await window.api.updateOrderStatus(s.dataset.id, s.value);
+      await loadOrders();
+    } catch (err) {
+      alert(err.message || 'Failed to update order status.');
+      await loadOrders();
+    }
+  });
+
+  $('oBody').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-view]');
+    if (!b) return;
+    const o = ordersList.find((x) => x.orderId === b.dataset.view);
+    if (o) view(o);
+  });
+
+  $('q').addEventListener('input', (e) => {
+    q = e.target.value.trim().toLowerCase();
+    render();
+  });
+
+  $('fSt').addEventListener('change', (e) => {
+    fs = e.target.value;
+    render();
+  });
+
+  await loadOrders();
+})();
+</script>
+</body>
+</html>

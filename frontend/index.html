@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SolarSense AI | Smart Solar Monitoring & Management Platform</title>
+<meta name="description" content="Monitor solar generation, predict output, detect faults and manage maintenance from one platform.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- NAVBAR -->
+<header class="nav">
+  <div class="wrap">
+    <a href="#home" class="logo">
+      <span class="logo-mark"><svg width="20" height="20" viewBox="0 0 24 24" fill="#F5A300"><circle cx="12" cy="12" r="5"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" stroke="#F5A300" stroke-width="2" stroke-linecap="round"/></svg></span>
+      SolarSense AI
+    </a>
+    <button class="nav-toggle" id="navToggle" aria-label="Open menu">&#9776;</button>
+    <ul class="nav-links" id="navLinks">
+      <li><a href="#home">Home</a></li>
+      <li><a href="#features">Features</a></li>
+      <li><a href="#catalog">Catalog</a></li>
+      <li><a href="#about">About</a></li>
+      <li><a href="#contact">Contact</a></li>
+      <li id="navAuth"><a href="login.html">Login</a></li>
+      <li id="navCta"><a href="register.html" class="btn btn-primary btn-sm">Register</a></li>
+    </ul>
+  </div>
+</header>
+
+<main>
+<!-- HERO -->
+<section class="hero" id="home">
+  <div class="wrap">
+    <div>
+      <h1>Smart Solar Monitoring &amp; Management Platform</h1>
+      <p class="lead">Monitor solar energy generation, analyze performance, manage maintenance, and use AI-powered insights from one platform.</p>
+      <div class="hero-cta">
+        <a href="register.html" class="btn btn-primary">Get Started</a>
+        <a href="#features" class="btn btn-outline">Explore Features</a>
+      </div>
+      <p class="hero-note">Runs on simulated and historical solar data. Ready for IoT sensor integration.</p>
+    </div>
+
+    <div class="preview" aria-label="Sample dashboard preview">
+      <div class="preview-top"><span><b style="color:var(--navy)">Sunrise Residency Plant</b></span><span class="chip chip-sun">Sample data</span></div>
+      <div class="kpis">
+        <div class="kpi"><small>Today</small><b>24.6 kWh</b></div>
+        <div class="kpi"><small>This month</small><b>612 kWh</b></div>
+        <div class="kpi"><small>Savings</small><b style="color:var(--leaf)">&#8377;197</b></div>
+      </div>
+      <svg viewBox="0 0 360 150" role="img" aria-label="Expected versus actual generation chart">
+        <g stroke="#E3E9F2"><line x1="0" y1="30" x2="360" y2="30"/><line x1="0" y1="75" x2="360" y2="75"/><line x1="0" y1="120" x2="360" y2="120"/></g>
+        <path d="M0 125 C60 110 90 40 150 30 S250 40 290 85 330 120 360 128" fill="none" stroke="#9FB0CC" stroke-width="2.5" stroke-dasharray="6 5"/>
+        <path d="M0 125 C60 112 90 50 150 40 S230 48 250 70 L290 108 C320 118 340 124 360 130 L360 150 L0 150Z" fill="#F5A300" opacity=".15"/>
+        <path d="M0 125 C60 112 90 50 150 40 S230 48 250 70 L290 108 C320 118 340 124 360 130" fill="none" stroke="#F5A300" stroke-width="3.5" stroke-linecap="round"/>
+        <circle cx="262" cy="82" r="6" fill="#E5572F"/>
+      </svg>
+      <div class="legend"><span><i style="background:#F5A300"></i>Actual</span><span><i style="background:#9FB0CC"></i>Expected (AI)</span></div>
+      <div class="alert-row"><span class="chip chip-warn">Alert</span> Output is 18% below expected. Panel cleaning recommended.</div>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Everything a solar plant owner needs to stay in control</h2>
+      <p>From daily generation to repair tickets, each tool answers a question owners and administrators ask every week.</p>
+    </div>
+    <div class="grid-3">
+      <a class="card feature" href="dashboard.html"><h3>Energy Monitoring</h3><p>See today's, monthly and lifetime generation for every plant in clear cards and charts.</p><span class="chip chip-sun tag">Open dashboard</span></a>
+      <a class="card feature" href="analytics.html"><h3>Energy Analytics</h3><p>Compare periods, find your best and weakest days, and spot production trends.</p><span class="chip chip-sun tag">Open analytics</span></a>
+      <a class="card feature ai" href="dashboard.html"><h3>AI Energy Prediction</h3><p>A trained regression model estimates tomorrow's generation from past output and seasonal patterns.</p><span class="chip chip-leaf tag">AI module</span></a>
+      <a class="card feature ai" href="dashboard.html"><h3>Fault Detection</h3><p>Expected and actual output are compared. A sharp drop raises an alert with a suggested next step.</p><span class="chip chip-leaf tag">AI module</span></a>
+      <a class="card feature" href="maintenance.html"><h3>Maintenance Management</h3><p>Raise a ticket, follow it from Pending to Closed, and keep a full service history.</p><span class="chip chip-sun tag">Open maintenance</span></a>
+      <a class="card feature" href="savings.html"><h3>Savings Calculator</h3><p>Enter your tariff and generation to see daily, monthly and yearly savings in rupees.</p><span class="chip chip-sun tag">Open calculator</span></a>
+    </div>
+  </div>
+</section>
+
+<!-- PRODUCT CATALOG -->
+<section class="catalog-bg" id="catalog">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Product catalog</h2>
+      <p>Solar panels, inverters, batteries and accessories. Create an account to send an order request.</p>
+    </div>
+    <div class="chips" id="shopChips" style="margin-bottom:24px"></div>
+    <div class="shop-grid" id="shopGrid"></div>
+    <p class="hero-note" style="margin-top:24px">Sample products and prices for this demo. No online payment: our team confirms each order and arranges payment and delivery directly.</p>
+  </div>
+</section>
+
+<!-- USER / ADMIN WORKSPACES -->
+<section id="workspaces">
+  <div class="wrap">
+    <div class="section-head">
+      <h2>Two workspaces, one platform</h2>
+      <p>Owners and administrators sign in to separate areas. Admin pages are blocked for regular users.</p>
+    </div>
+    <div class="grid-2">
+      <div class="card space">
+        <span class="chip chip-sun">User portal</span>
+        <h3>For plant owners</h3>
+        <ul><li>Dashboard with generation, savings and AI prediction</li><li>Plant details and energy analytics</li><li>Raise and track maintenance requests</li><li>Download monthly and yearly reports</li></ul>
+        <a href="login.html" class="btn btn-primary">User login</a>
+      </div>
+      <div class="card space admin">
+        <span class="chip chip-warn">Admin panel</span>
+        <h3>For administrators</h3>
+        <ul><li>Manage users and solar plants</li><li>Assign technicians and update request status</li><li>Monitor system alerts and statistics</li><li>Generate plant, user and maintenance reports</li></ul>
+        <a href="login.html?role=admin" class="btn btn-primary">Admin login</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="catalog-bg">
+  <div class="wrap">
+    <div class="section-head"><h2>How it works</h2></div>
+    <div class="steps">
+      <div class="step"><h3>Register</h3><p>Create your account with name, email, phone and password.</p></div>
+      <div class="step"><h3>Add solar plant</h3><p>An administrator links your plant to your account.</p></div>
+      <div class="step"><h3>Monitor energy</h3><p>Follow generation, savings and alerts on your dashboard.</p></div>
+      <div class="step"><h3>Analyze and maintain</h3><p>Review trends, act on AI recommendations and raise tickets.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- STATS -->
+<section class="stats">
+  <div class="wrap">
+    <div class="stats-grid">
+      <div class="stat"><b>6</b><span>Core modules</span></div>
+      <div class="stat"><b>2</b><span>AI features</span></div>
+      <div class="stat"><b>2</b><span>User roles</span></div>
+      <div class="stat"><b>365</b><span>Days of sample data per plant</span></div>
+    </div>
+    <p class="demo-note">These figures describe the demo build. Energy values in the product use simulated data.</p>
+  </div>
+</section>
+
+<!-- ABOUT -->
+<section id="about">
+  <div class="wrap about">
+    <div>
+      <h2 style="font-size:clamp(28px,4vw,38px);margin-bottom:18px">About SolarSense AI</h2>
+      <p>SolarSense AI helps solar plant owners understand how their system performs and helps administrators keep every plant healthy.</p>
+      <p>It combines energy tracking, analytics and maintenance management with two explainable machine learning models: one predicts generation, the other detects abnormal drops.</p>
+      <p>The platform is built as a software-only system using simulated and historical data, and is designed so real IoT sensor data can be connected later.</p>
+    </div>
+    <div class="card" style="background:var(--sun-soft);border-color:#F3DFA6">
+      <h3 style="margin-bottom:12px">Future scope</h3>
+      <ul style="list-style:none;display:grid;gap:8px">
+        <li>&#10003; IoT sensor and inverter integration</li><li>&#10003; Email and SMS notifications</li><li>&#10003; Weather API for better forecasts</li><li>&#10003; Mobile application</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- CONTACT -->
+<section class="catalog-bg" id="contact">
+  <div class="wrap contact">
+    <div>
+      <h2 style="font-size:clamp(28px,4vw,38px);margin-bottom:14px">Contact us</h2>
+      <p style="color:var(--muted);font-size:18px">Questions about a demo or a feature? Send us a message and the team will reply.</p>
+    </div>
+    <form class="card" id="contactForm">
+      <label>Name<input type="text" name="name" required></label>
+      <label>Email<input type="email" name="email" required></label>
+      <label>Message<textarea name="message" required></textarea></label>
+      <button class="btn btn-primary" type="submit">Send message</button>
+      <p class="form-msg" id="formMsg" role="status"></p>
+    </form>
+  </div>
+</section>
+</main>
+
+<!-- FOOTER -->
+<footer>
+  <div class="wrap">
+    <div class="foot-cols">
+      <div>
+        <div class="logo">SolarSense AI</div>
+        <p style="margin-top:10px;max-width:260px">Smart Solar Monitoring &amp; Management Platform</p>
+      </div>
+      <div>
+        <h4>Explore</h4>
+        <ul>
+          <li><a href="#home">Home</a></li><li><a href="#features">Features</a></li><li><a href="#catalog">Product catalog</a></li>
+          <li><a href="#about">About</a></li><li><a href="#contact">Contact</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>User portal</h4>
+        <ul>
+          <li><a href="dashboard.html">Dashboard</a></li><li><a href="plant.html">Solar plant</a></li><li><a href="analytics.html">Energy analytics</a></li>
+          <li><a href="catalog.html">Catalog &amp; orders</a></li><li><a href="maintenance.html">Maintenance</a></li>
+          <li><a href="reports.html">Reports</a></li><li><a href="savings.html">Savings calculator</a></li><li><a href="profile.html">Profile</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Account</h4>
+        <ul>
+          <li><a href="login.html">User login</a></li><li><a href="login.html?role=admin">Admin login</a></li><li><a href="register.html">Register</a></li>
+        </ul>
+      </div>
+    </div>
+    <div class="copy">&copy; 2026 SolarSense AI. College project for IT Based Enhancement Skills.</div>
+  </div>
+</footer>
+
+<script src="api.js"></script>
+<script src="products.js"></script>
+<script src="main.js"></script>
+<script>
+(async function () {
+  const grid = document.getElementById('shopGrid');
+  const chips = document.getElementById('shopChips');
+  if (!grid) return;
+
+  let products = [];
+  try {
+    products = await (window.api ? window.api.getProducts() : fetch('/api/products').then(r => r.json()));
+  } catch (e) {
+    console.error('Failed to load products from API, falling back to static products', e);
+    products = typeof PRODUCTS !== 'undefined' ? PRODUCTS : [];
+  }
+
+  // Normalize product properties
+  products = products.map((p) => ({
+    ...p,
+    id: p.productId || p.id,
+    desc: p.description || p.desc || ''
+  }));
+
+  const cats = ['All', ...new Set(products.map((p) => p.category))];
+  let cat = 'All';
+  const money = (n) => '\u20B9' + Number(n).toLocaleString('en-IN');
+  const sess = window.api ? window.api.getUser() : null;
+  const orderHref = !sess ? 'login.html?next=catalog.html' : sess.role === 'admin' ? 'admin-orders.html' : 'catalog.html';
+
+  function draw() {
+    chips.innerHTML = cats.map((c) =>
+      `<button type="button" class="chipbtn ${c === cat ? 'active' : ''}" data-cat="${c}">${c}</button>`).join('');
+    grid.innerHTML = products.filter((p) => cat === 'All' || p.category === cat).map((p) => `
+      <article class="pcard">
+        <div class="pimg">${p.img ? `<img src="${p.img}" alt="${p.name}">` : (typeof productArt === 'function' ? productArt(p.category) : '')}</div>
+        <div class="pbody">
+          <span class="chip ${p.stock === 'In stock' ? 'chip-leaf' : 'chip-sun'}" style="align-self:flex-start">${p.stock}</span>
+          <h3>${p.name}</h3>
+          <p>${p.desc}</p>
+          <ul class="specs">${(p.specs || []).map((s) => `<li>${s}</li>`).join('')}</ul>
+          <div class="pfoot">
+            <div class="price">${money(p.price)} <small>/ ${p.unit}</small></div>
+            <a class="btn btn-primary btn-sm" href="${orderHref}">Order now</a>
+          </div>
+        </div>
+      </article>`).join('');
+  }
+
+  chips.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-cat]');
+    if (b) { cat = b.dataset.cat; draw(); }
+  });
+  draw();
+})();
+</script>
+</body>
+</html>

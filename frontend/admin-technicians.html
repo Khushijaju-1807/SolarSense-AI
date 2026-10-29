@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Technicians | SolarSense AI</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="app" data-role="admin" data-title="Technician Management">
+<div id="page" class="content">
+  <div class="panel">
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Search by name, ID, phone or skill" aria-label="Search technicians">
+      <span style="color:var(--muted);font-size:14px" id="tCount"></span>
+      <button class="btn btn-primary btn-sm" type="button" id="addBtn">Add technician</button>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ID</th><th>Name</th><th>Phone</th><th>Email</th><th>Specialization</th><th>Open jobs</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="tBody"></tbody>
+      </table>
+    </div>
+    <p class="note">Assign a technician to a maintenance request from the Maintenance page. The customer then sees the technician's name and phone number.</p>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="auth.js"></script>
+<script src="data.js"></script>
+<script src="admin-data.js"></script>
+<script src="app.js"></script>
+<script>
+(async function () {
+  if (!window.ME) return;
+
+  let q = '';
+  let list = [];
+
+  async function load() {
+    try {
+      list = await window.api.get('/technicians');
+      render();
+    } catch (err) {
+      $('tBody').innerHTML = '<tr><td colspan="8" style="color:var(--warn)">' + esc(err.message || 'Could not load technicians.') + '</td></tr>';
+    }
+  }
+
+  function render() {
+    const rows = list.filter((t) =>
+      (t.technicianId + ' ' + t.name + ' ' + t.phone + ' ' + (t.specialization || '')).toLowerCase().includes(q));
+    $('tCount').textContent = rows.length + ' technician' + (rows.length === 1 ? '' : 's');
+    $('tBody').innerHTML = rows.length ? rows.map((t) => `<tr>
+      <td><b>${esc(t.technicianId)}</b></td>
+      <td>${esc(t.name)}</td>
+      <td>${esc(t.phone)}</td>
+      <td>${t.email ? esc(t.email) : '<span style="color:var(--muted)">-</span>'}</td>
+      <td>${esc(t.specialization)}</td>
+      <td>${t.openJobs || 0}</td>
+      <td><span class="st ${t.status === 'active' ? 'st-Resolved' : 'st-Closed'}">${t.status === 'active' ? 'Active' : 'Inactive'}</span></td>
+      <td><div class="acts">
+        <button class="link-btn" type="button" data-act="edit" data-id="${t.technicianId}">Edit</button>
+        <button class="link-btn danger" type="button" data-act="del" data-id="${t.technicianId}">Delete</button>
+      </div></td></tr>`).join('')
+      : '<tr><td colspan="8" style="color:var(--muted)">No technicians found. Click "Add technician".</td></tr>';
+  }
+
+  function form(t) {
+    const edit = !!t;
+    openModal(edit ? 'Edit technician (' + t.technicianId + ')' : 'Add technician', `
+      <form id="tForm" novalidate>
+        <div id="tAlert" class="alert" role="alert"></div>
+        <label>Full name <input type="text" id="fName"><span class="err"></span></label>
+        <label>Mobile number (10 digits) <input type="tel" id="fPhone" maxlength="10" placeholder="9876543210"><span class="err"></span></label>
+        <label>Email (optional) <input type="email" id="fEmail"><span class="err"></span></label>
+        <label>Specialization <input type="text" id="fSpec" placeholder="e.g. Inverters and wiring"><span class="err"></span></label>
+        <label>Status <select id="fStatus"><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
+        <button class="btn btn-primary" type="submit">${edit ? 'Save changes' : 'Add technician'}</button>
+      </form>`);
+
+    if (edit) {
+      $('fName').value = t.name;
+      $('fPhone').value = t.phone;
+      $('fEmail').value = t.email || '';
+      $('fSpec').value = t.specialization || '';
+      $('fStatus').value = t.status;
+    }
+
+    $('tForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const n = $('fName'), p = $('fPhone'), m = $('fEmail');
+      const box = $('tAlert');
+      box.className = 'alert';
+      const ok = [
+        setErr(n, n.value.trim().length >= 3 ? '' : 'Enter the technician name (3+ characters).'),
+        setErr(p, /^[6-9]\d{9}$/.test(p.value.trim()) ? '' : 'Enter a valid 10-digit mobile number.'),
+        setErr(m, !m.value.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(m.value.trim()) ? '' : 'Enter a valid email.')
+      ];
+      if (ok.includes(false)) return;
+
+      const btn = e.target.querySelector('button[type="submit"]');
+      btn.disabled = true;
+      const payload = {
+        name: n.value.trim(),
+        phone: p.value.trim(),
+        email: m.value.trim(),
+        specialization: $('fSpec').value.trim() || 'General maintenance',
+        status: $('fStatus').value
+      };
+      try {
+        if (edit) await window.api.put('/technicians/' + t.technicianId, payload);
+        else await window.api.post('/technicians', payload);
+        closeModal();
+        await load();
+      } catch (err) {
+        box.className = 'alert show error';
+        box.textContent = err.message || 'Could not save the technician.';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
+  $('tBody').addEventListener('click', async (e) => {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    const t = list.find((x) => x.technicianId === b.dataset.id);
+    if (!t) return;
+    if (b.dataset.act === 'edit') form(t);
+    if (b.dataset.act === 'del') {
+      if (!confirm('Delete technician ' + t.name + ' (' + t.technicianId + ')?')) return;
+      try {
+        await window.api.delete('/technicians/' + t.technicianId);
+        await load();
+      } catch (err) {
+        alert(err.message || 'Could not delete the technician.');
+      }
+    }
+  });
+
+  $('q').addEventListener('input', (e) => { q = e.target.value.trim().toLowerCase(); render(); });
+  $('addBtn').onclick = () => form(null);
+
+  await load();
+})();
+</script>
+</body>
+</html>

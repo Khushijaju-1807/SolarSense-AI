@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Products | SolarSense AI</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="app" data-role="admin" data-title="Product Catalog Management">
+<div id="page" class="content">
+  <div class="stat-grid" id="pStats" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr))"></div>
+  <div class="panel">
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Search by product, ID or category" aria-label="Search products">
+      <select id="fSt" aria-label="Filter by availability">
+        <option value="">All availability</option><option>In stock</option><option>Made to order</option><option>Out of stock</option>
+      </select>
+      <button class="btn btn-primary btn-sm" type="button" id="addBtn">Add product</button>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ID</th><th>Product</th><th>Category</th><th>Price</th><th>Availability</th><th>Actions</th></tr></thead>
+        <tbody id="pBody"></tbody>
+      </table>
+    </div>
+    <p class="note">Change the availability from the list. "Out of stock" products cannot be ordered by customers. Changes appear in the customer catalog straight away.</p>
+  </div>
+</div>
+
+<script src="api.js"></script>
+<script src="auth.js"></script>
+<script src="data.js"></script>
+<script src="admin-data.js"></script>
+<script src="app.js"></script>
+<script>
+(async function () {
+  if (!window.ME) return;
+
+  const STOCK = ['In stock', 'Made to order', 'Out of stock'];
+  const money = (n) => '\u20B9' + Number(n).toLocaleString('en-IN');
+  let q = '', fs = '';
+  let list = [];
+
+  async function load() {
+    try {
+      list = await window.api.getProducts();
+      render();
+    } catch (err) {
+      $('pBody').innerHTML = '<tr><td colspan="6" style="color:var(--warn)">' + esc(err.message || 'Could not load products.') + '</td></tr>';
+    }
+  }
+
+  function render() {
+    const n = (s) => list.filter((p) => p.stock === s).length;
+    $('pStats').innerHTML = [
+      ['Total products', list.length, ''],
+      ['In stock', n('In stock'), 'green'],
+      ['Made to order', n('Made to order'), ''],
+      ['Out of stock', n('Out of stock'), '']
+    ].map(([l, v, c]) => `<div class="stat-card ${c}"><small>${l}</small><b>${v}</b></div>`).join('');
+
+    const rows = list.filter((p) =>
+      (!fs || p.stock === fs) &&
+      (p.productId + ' ' + p.name + ' ' + p.category).toLowerCase().includes(q));
+
+    $('pBody').innerHTML = rows.length ? rows.map((p) => `<tr>
+      <td><b>${esc(p.productId)}</b></td>
+      <td style="white-space:normal;min-width:200px">${esc(p.name)}</td>
+      <td>${esc(p.category)}</td>
+      <td>${money(p.price)} <small style="color:var(--muted)">/ ${esc(p.unit)}</small></td>
+      <td><select class="row-select" data-act="stock" data-id="${p.productId}" aria-label="Availability">
+        ${STOCK.map((s) => `<option ${s === p.stock ? 'selected' : ''}>${s}</option>`).join('')}</select></td>
+      <td><div class="acts">
+        <button class="link-btn" type="button" data-act="edit" data-id="${p.productId}">Edit</button>
+        <button class="link-btn danger" type="button" data-act="del" data-id="${p.productId}">Delete</button>
+      </div></td></tr>`).join('')
+      : '<tr><td colspan="6" style="color:var(--muted)">No products found.</td></tr>';
+  }
+
+  function form(p) {
+    const edit = !!p;
+    openModal(edit ? 'Edit product (' + p.productId + ')' : 'Add product', `
+      <form id="pForm" novalidate>
+        <div id="pAlert" class="alert" role="alert"></div>
+        <label>Product name <input type="text" id="fName"><span class="err"></span></label>
+        <div class="two">
+          <label>Category <input type="text" id="fCat" placeholder="e.g. Solar Panels"><span class="err"></span></label>
+          <label>Unit <input type="text" id="fUnit" placeholder="panel, unit, kit"><span class="err"></span></label>
+        </div>
+        <div class="two">
+          <label>Price (Rs.) <input type="number" id="fPrice" min="0" step="1"><span class="err"></span></label>
+          <label>Availability <select id="fStock">${STOCK.map((s) => `<option>${s}</option>`).join('')}</select></label>
+        </div>
+        <label>Short description <textarea id="fDesc" style="min-height:70px" maxlength="300"></textarea><span class="err"></span></label>
+        <label>Specifications (one per line, up to 6) <textarea id="fSpecs" style="min-height:90px"></textarea><span class="err"></span></label>
+        <label>Image file name (optional) <input type="text" id="fImg" placeholder="panel540.jpg"><span class="err"></span></label>
+        <button class="btn btn-primary" type="submit">${edit ? 'Save changes' : 'Add product'}</button>
+      </form>`);
+
+    if (edit) {
+      $('fName').value = p.name;
+      $('fCat').value = p.category;
+      $('fUnit').value = p.unit || 'unit';
+      $('fPrice').value = p.price;
+      $('fStock').value = p.stock;
+      $('fDesc').value = p.description || '';
+      $('fSpecs').value = (p.specs || []).join('\n');
+      $('fImg').value = p.img || '';
+    } else {
+      $('fUnit').value = 'unit';
+    }
+
+    $('pForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const n = $('fName'), c = $('fCat'), pr = $('fPrice'), sp = $('fSpecs'), im = $('fImg');
+      const box = $('pAlert');
+      box.className = 'alert';
+      const specs = sp.value.split('\n').map((x) => x.trim()).filter(Boolean);
+      const ok = [
+        setErr(n, n.value.trim().length >= 3 ? '' : 'Enter the product name (3+ characters).'),
+        setErr(c, c.value.trim().length >= 2 ? '' : 'Enter a category.'),
+        setErr(pr, pr.value !== '' && +pr.value >= 0 ? '' : 'Enter a valid price.'),
+        setErr(sp, specs.length <= 6 ? '' : 'Use at most 6 specifications.'),
+        setErr(im, !im.value.trim() || /^[\w\-./]{1,100}$/.test(im.value.trim()) ? '' : 'Use a simple file name like panel540.jpg')
+      ];
+      if (ok.includes(false)) return;
+
+      const btn = e.target.querySelector('button[type="submit"]');
+      btn.disabled = true;
+      const payload = {
+        name: n.value.trim(),
+        category: c.value.trim(),
+        unit: $('fUnit').value.trim() || 'unit',
+        price: +pr.value,
+        stock: $('fStock').value,
+        description: $('fDesc').value.trim(),
+        specs: specs,
+        img: im.value.trim()
+      };
+      try {
+        if (edit) await window.api.put('/products/' + p.productId, payload);
+        else await window.api.post('/products', payload);
+        closeModal();
+        await load();
+      } catch (err) {
+        box.className = 'alert show error';
+        box.textContent = err.message || 'Could not save the product.';
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
+  $('pBody').addEventListener('click', async (e) => {
+    const b = e.target.closest('button[data-act]');
+    if (!b) return;
+    const p = list.find((x) => x.productId === b.dataset.id);
+    if (!p) return;
+    if (b.dataset.act === 'edit') form(p);
+    if (b.dataset.act === 'del') {
+      if (!confirm('Delete ' + p.name + ' (' + p.productId + ')? This cannot be undone.')) return;
+      try {
+        await window.api.delete('/products/' + p.productId);
+        await load();
+      } catch (err) {
+        alert(err.message || 'Could not delete the product.');
+      }
+    }
+  });
+
+  $('pBody').addEventListener('change', async (e) => {
+    const s = e.target.closest('select[data-act="stock"]');
+    if (!s) return;
+    try {
+      await window.api.put('/products/' + s.dataset.id, { stock: s.value });
+    } catch (err) {
+      alert(err.message || 'Could not update availability.');
+    }
+    await load();
+  });
+
+  $('q').addEventListener('input', (e) => { q = e.target.value.trim().toLowerCase(); render(); });
+  $('fSt').addEventListener('change', (e) => { fs = e.target.value; render(); });
+  $('addBtn').onclick = () => form(null);
+
+  await load();
+})();
+</script>
+</body>
+</html>

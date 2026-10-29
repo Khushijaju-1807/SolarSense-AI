@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Register | SolarSense AI</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="auth">
+  <aside class="auth-side">
+    <a href="index.html" class="logo">
+      <span class="logo-mark"><svg width="20" height="20" viewBox="0 0 24 24" fill="#F5A300"><circle cx="12" cy="12" r="5"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1" stroke="#F5A300" stroke-width="2" stroke-linecap="round"/></svg></span>
+      SolarSense AI
+    </a>
+    <div>
+      <h2>Start monitoring in minutes.</h2>
+      <p>Create an account, and an administrator will link your solar plant to it.</p>
+      <ul>
+        <li>Energy generation and savings dashboard</li>
+        <li>Maintenance requests and reports</li>
+        <li>AI energy prediction for tomorrow</li>
+      </ul>
+    </div>
+    <p style="font-size:14px">Demo build with simulated solar data.</p>
+  </aside>
+
+  <main class="auth-main">
+    <div class="auth-box">
+      <a href="index.html" class="back">Back to home</a>
+      <h1>Create your account</h1>
+      <p class="sub">All fields are required.</p>
+
+      <form id="registerForm" novalidate>
+        <div id="regAlert" class="alert" role="alert"></div>
+        <label>Full name
+          <input type="text" id="regName" autocomplete="name" placeholder="Your full name">
+          <span class="err"></span>
+        </label>
+        <label>Email
+          <input type="email" id="regEmail" autocomplete="email" placeholder="you@example.com">
+          <span class="err"></span>
+        </label>
+        <label>Phone number
+          <input type="tel" id="regPhone" autocomplete="tel" placeholder="10-digit mobile number" maxlength="10">
+          <span class="err"></span>
+        </label>
+        <div class="two">
+          <label>Password
+            <div class="pw">
+              <input type="password" id="regPassword" autocomplete="new-password" placeholder="Min. 8 characters">
+              <button type="button">Show</button>
+            </div>
+            <span class="err"></span>
+          </label>
+          <label>Confirm password
+            <div class="pw">
+              <input type="password" id="regConfirm" autocomplete="new-password" placeholder="Repeat password">
+              <button type="button">Show</button>
+            </div>
+            <span class="err"></span>
+          </label>
+        </div>
+        <button class="btn btn-primary" type="submit">Create account</button>
+      </form>
+
+      <p class="auth-foot">Already registered? <a href="login.html">Sign in</a></p>
+    </div>
+  </main>
+</div>
+<script src="api.js"></script>
+<script src="auth.js"></script>
+</body>
+</html> 

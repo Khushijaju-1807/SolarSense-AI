@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard | SolarSense AI</title>
+<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="app.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body class="app" data-role="user" data-title="Dashboard">
+
+<div id="page" class="content">
+
+  <div id="alertBanner"></div>
+
+  <div class="stat-grid">
+    <div class="stat-card"><small>Today's generation</small><b id="kToday">-</b><span>kWh</span></div>
+    <div class="stat-card"><small>This month</small><b id="kMonth">-</b><span>kWh</span></div>
+    <div class="stat-card"><small>Total generated</small><b id="kTotal">-</b><span>kWh since installation</span></div>
+    <div class="stat-card green"><small>Estimated savings</small><b id="kSave">-</b><span id="kSaveNote"></span></div>
+    <div class="stat-card"><small>Plant status</small><b id="kStatus" style="font-size:20px">-</b><span id="kPlant"></span></div>
+  </div>
+
+  <div class="cols">
+    <div class="panel">
+      <div class="panel-head">
+        <h3>Expected vs actual generation</h3>
+        <select id="range" aria-label="Date range">
+          <option value="7">Last 7 days</option>
+          <option value="14" selected>Last 14 days</option>
+          <option value="30">Last 30 days</option>
+        </select>
+      </div>
+      <div class="chart-box"><canvas id="lineChart"></canvas></div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head"><h3>AI prediction</h3><span class="chip chip-leaf">AI module</span></div>
+      <small style="color:var(--muted)">Expected generation tomorrow</small>
+      <div class="pred-big" id="predTomorrow">-</div>
+      <ul class="pred-list" id="predList"></ul>
+      <p class="note">Demo estimate from seasonal pattern and recent output. The trained Python model replaces it in the AI step.</p>
+    </div>
+  </div>
+
+  <div class="cols even">
+    <div class="panel">
+      <div class="panel-head"><h3>Monthly production</h3></div>
+      <div class="chart-box"><canvas id="barChart"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>Recent alerts</h3><span class="chip chip-warn" id="alertCount"></span></div>
+      <ul class="alert-list" id="alertList"></ul>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-head"><h3>Recent maintenance requests</h3><a href="maintenance.html" class="btn btn-outline btn-sm">View all</a></div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Request ID</th><th>Issue</th><th>Date</th><th>Priority</th><th>Status</th><th>Technician</th></tr></thead>
+        <tbody id="maintBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script src="api.js"></script>
+<script src="auth.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+<script>
+(async function () {
+  if (!window.ME) return;
+
+  try {
+    const plants = await window.api.getPlants();
+    if (!plants || !plants.length) {
+      $('alertBanner').innerHTML = '<div class="banner"><div><b>No plant linked</b>Contact the administrator to link a solar plant to your account.</div></div>';
+      return;
+    }
+
+    const plant = plants[0];
+    $('kPlant').textContent = plant.plantName;
+
+    const [energyRecords, insights, maintList] = await Promise.all([
+      window.api.getEnergy({ plantId: plant.plantId }),
+      window.api.getInsights(plant.plantId).catch(() => null),
+      window.api.getMaintenance().catch(() => [])
+    ]);
+
+    const data = (energyRecords || []).map((r) => ({
+      date: r.date,
+      energy: r.energyGenerated,
+      expected: r.expectedEnergy
+    }));
+
+    if (!data.length) {
+      $('alertBanner').innerHTML = '<div class="banner good"><div><b>Plant registered</b>Awaiting energy generation data.</div></div>';
+      return;
+    }
+
+    const last = data[data.length - 1];
+    const monthRows = data.filter((r) => r.date.startsWith(last.date.slice(0, 7)));
+    const monthKwh = sumKwh(monthRows);
+
+    /* Summary cards */
+    $('kToday').textContent = last.energy.toFixed(1);
+    $('kMonth').textContent = monthKwh.toFixed(0);
+    $('kTotal').textContent = Math.round(sumKwh(data)).toLocaleString('en-IN');
+    $('kSave').textContent = inr(monthKwh * TARIFF);
+    $('kSaveNote').textContent = 'this month at \u20B9' + TARIFF + '/kWh';
+
+    const alerts = (insights && insights.alerts) ? insights.alerts : getAlerts(data);
+    const faulty = insights ? insights.faultActive : (alerts.length && alerts[0].date >= data[data.length - 3].date);
+    $('kStatus').innerHTML = faulty
+      ? '<span class="st st-Pending" style="background:var(--warn-soft);color:var(--warn)">Needs attention</span>'
+      : '<span class="st st-Resolved">' + (plant.status || 'Operational') + '</span>';
+
+    /* Alert banner */
+    $('alertBanner').innerHTML = alerts.length
+      ? `<div class="banner"><div><b>Abnormal reduction in energy production detected</b>
+          On ${alerts[0].date}: expected ${alerts[0].expected} kWh, actual ${alerts[0].actual} kWh (${alerts[0].drop}% lower).
+          Recommendation: ${alerts[0].advice}. <a href="maintenance.html" style="text-decoration:underline;font-weight:700">Raise a maintenance request</a></div></div>`
+      : '<div class="banner good"><div><b>All good</b>Your plant is producing as expected.</div></div>';
+
+    /* Alert list */
+    $('alertCount').textContent = alerts.length + ' in 14 days';
+    $('alertList').innerHTML = alerts.length
+      ? alerts.map((a) => `<li class="${a.level === 'minor' ? 'minor' : ''}"><b>${a.drop}% below expected</b>${a.advice}<small>${a.date}: ${a.actual} of ${a.expected} kWh</small></li>`).join('')
+      : '<li style="border-left-color:var(--leaf)">No alerts in the last 14 days.</li>';
+
+    /* AI prediction */
+    const pred = (insights && insights.prediction && insights.prediction.length)
+      ? insights.prediction
+      : predictNext(data, 3, plant.capacity);
+
+    if (pred && pred.length) {
+      $('predTomorrow').innerHTML = pred[0].kwh + ' <small>kWh</small>';
+      $('predList').innerHTML = pred.slice(1).map((p) => `<li><span>${p.date}</span><b>${p.kwh} kWh</b></li>`).join('')
+        + `<li><span>Last 7-day average</span><b>${(sumKwh(data.slice(-7)) / Math.min(7, data.length)).toFixed(1)} kWh</b></li>`;
+    }
+
+    /* Line chart */
+    let line;
+    function drawLine(days) {
+      const rows = data.slice(-days);
+      if (line) line.destroy();
+      line = new Chart($('lineChart'), {
+        type: 'line',
+        data: {
+          labels: rows.map((r) => r.date.slice(5)),
+          datasets: [
+            { label: 'Actual (kWh)', data: rows.map((r) => r.energy), borderColor: '#F5A300', backgroundColor: 'rgba(245,163,0,.15)', fill: true, tension: .35, borderWidth: 3, pointRadius: 3 },
+            { label: 'Expected (kWh)', data: rows.map((r) => r.expected), borderColor: '#9FB0CC', borderDash: [6, 5], tension: .35, borderWidth: 2, pointRadius: 0 }
+          ]
+        },
+        options: { responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+          plugins: { legend: { position: 'bottom' } }, scales: { y: { beginAtZero: true, title: { display: true, text: 'kWh' } } } }
+      });
+    }
+    drawLine(14);
+    $('range').addEventListener('change', (e) => drawLine(+e.target.value));
+
+    /* Bar chart: last 12 months */
+    const months = monthlyTotals(data).slice(-12);
+    new Chart($('barChart'), {
+      type: 'bar',
+      data: {
+        labels: months.map((m) => new Date(m.key + '-01').toLocaleString('en-US', { month: 'short' })),
+        datasets: [{ label: 'kWh', data: months.map((m) => m.kwh), backgroundColor: '#0F1F3D', borderRadius: 6 }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, title: { display: true, text: 'kWh' } } } }
+    });
+
+    /* Recent maintenance */
+    $('maintBody').innerHTML = (maintList && maintList.length)
+      ? maintList.slice(0, 3).map((m) =>
+          `<tr><td><b>${m.requestId}</b></td><td>${m.title}</td><td>${(m.createdAt || '').slice(0, 10)}</td>
+           <td class="pr-${m.priority}">${m.priority}</td>
+           <td><span class="st st-${m.status.replace(' ', '')}">${m.status}</span></td><td>${m.assignedTechnician || 'Not assigned'}</td></tr>`).join('')
+      : '<tr><td colspan="6" style="color:var(--muted)">No maintenance requests yet.</td></tr>';
+  } catch (err) {
+    console.error('Error loading dashboard data', err);
+  }
+})();
+</script>
+</body>
+</html>
